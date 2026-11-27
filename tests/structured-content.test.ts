@@ -203,3 +203,25 @@ test('ordinary conversation publishes uncited views from fenced replies and read
   await send('第三步是什么？')
   assert.match(histories.at(-1)!, /TCP 三次握手\\n1\. 客户端 → 服务器：SYN/u)
 })
+
+test('a pasted source may be long, later sources join the discussion, and the discussion keeps its total limit', { timeout: 10_000 }, async t => {
+  const user = await createTestUser(pool)
+  t.after(() => removeTestUser(pool, user.id))
+  const server = createApp(pool, null)
+  t.after(() => server.close())
+  const cookie = await login(server, user.email)
+  const ask = (requestId: string, materialSelection: object) => server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
+    payload: { conversationId, requestId, messageText: '这些记录说了什么？', materialSelection } })
+  const long = { label: '长笔记', text: '记录。'.repeat(6000) }
+  const rootId = randomUUID()
+  const root = await readConversationTurn((await ask(rootId, { excerpt: long })).payload, 'text/event-stream')
+  assert.equal(root.status, 'complete')
+  assert.equal(root.materialContext?.sources[0]?.text.length, 18000)
+
+  const more = await readConversationTurn((await ask(randomUUID(), { parentRequestId: rootId, excerpt: { label: '补充', text: '另一段。' } })).payload, 'text/event-stream')
+  assert.deepEqual(more.materialContext?.sources.map(source => source.label), ['长笔记', '补充'])
+  assert.equal(more.materialContext?.discussionId, root.materialContext?.discussionId)
+
+  const overflow = await ask(randomUUID(), { parentRequestId: more.requestId, excerpt: { label: '太多', text: '字'.repeat(14001) } })
+  assert.equal(overflow.statusCode, 400, 'the discussion stays within its total character limit')
+})

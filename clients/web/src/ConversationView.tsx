@@ -6,6 +6,8 @@ import { ConversationTurnMessage } from './ConversationTurnMessage'
 import { PersonalMemorySection } from './PersonalMemorySection'
 import { ReviewInvitationCard } from './ReviewInvitationCard'
 import { useConversationSession, type UnsentMessage } from './useConversationSession'
+import { activeDiscussion, materialBudget, materialSelectionFor } from './material-draft'
+import { AttachMaterialDialog, MaterialStatus } from './MaterialComposer'
 import type { WorkspacePageProps } from './workspace-pages'
 
 function groupBySource<T extends { sourceRequestId: string | null }>(records: readonly T[]) {
@@ -66,6 +68,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
   const activeReviewInvitationId = latest?.kind === 'review_question' ? latest.reviewInvitationId : undefined
   const memoriesBySource = useMemo(() => groupBySource(snapshot?.memories ?? []), [snapshot?.memories])
   const candidatesBySource = useMemo(() => groupBySource(snapshot?.candidates ?? []), [snapshot?.candidates])
+  const discussion = useMemo(() => activeDiscussion(snapshot?.turns ?? []), [snapshot?.turns])
   const memoriesById = useMemo(() => new Map((snapshot?.memories ?? []).map(record => [record.id, record])), [snapshot?.memories])
   const memoryActions = { userId, onUnauthorized, onSaved: conversation.memorySaved, onReload: conversation.refresh }
 
@@ -92,9 +95,12 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
       field.current?.focus()
       return
     }
+    // A message that was saved but not confirmed is sent again exactly as before.
     const reviewInvitationId = draft.requestId ? draft.reviewInvitationId : activeReviewInvitationId
-    const message = { ...draft, requestId: draft.requestId ?? crypto.randomUUID(), messageText, reviewInvitationId }
-    conversation.saveDraft(message)
+    const materialSelection = draft.requestId ? draft.materialSelection
+      : reviewInvitationId ? undefined : materialSelectionFor(discussion, draft.attachment, !!draft.leaveDiscussion)
+    const message = { requestId: draft.requestId ?? crypto.randomUUID(), messageText, reviewInvitationId, materialSelection }
+    conversation.saveDraft({ ...draft, ...message })
     send(message)
   }
 
@@ -169,13 +175,19 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
             }} />}
           <p className="review-status" role="status">{reviewStatus}</p>
           <form className="conversation-composer" onSubmit={submit}>
+            <MaterialStatus attachment={draft.requestId ? undefined : draft.attachment} discussion={activeReviewInvitationId ? null : discussion}
+              leaveDiscussion={!!draft.leaveDiscussion} disabled={!!activeId}
+              onRemove={() => { conversation.saveDraft({ ...draft, requestId: undefined, attachment: undefined }); field.current?.focus() }}
+              onLeave={() => { conversation.saveDraft({ ...draft, requestId: undefined, leaveDiscussion: true }); field.current?.focus() }}
+              onContinue={() => { conversation.saveDraft({ ...draft, requestId: undefined, leaveDiscussion: undefined }); field.current?.focus() }} />
             <label htmlFor="conversation-message" className="sr-only">对话消息</label>
             <textarea ref={field} id="conversation-message" rows={2} maxLength={conversationTextLimit}
               value={activeId && draft.requestId === activeId ? '' : draft.messageText}
-              placeholder={activeReviewInvitationId ? '说说你的答案…' : hasHistory ? '继续聊聊你的想法…' : '比如，我想学会看懂一张星图'}
+              placeholder={activeReviewInvitationId ? '说说你的答案…' : draft.attachment ? '问问这段原文…'
+                : discussion && !draft.leaveDiscussion ? '接着问问这份材料…' : hasHistory ? '继续聊聊你的想法…' : '比如，我想学会看懂一张星图'}
               aria-invalid={invalid || undefined} aria-describedby={sendError || invalid ? 'conversation-send-error' : 'conversation-send-help'}
               readOnly={!!activeId} onChange={event => {
-                conversation.saveDraft({ messageText: event.target.value })
+                conversation.saveDraft({ messageText: event.target.value, attachment: draft.attachment, leaveDiscussion: draft.leaveDiscussion })
                 conversation.clearSendError()
                 setInvalid(false)
               }} onKeyDown={event => {
@@ -186,6 +198,8 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
               }} />
             <div className="conversation-toolbar">
               <span id="conversation-send-help">{!snapshot && !loadError ? '正在读取对话…' : busy ? '这条消息结束后可以继续发送。' : 'Enter 发送 · Shift + Enter 换行'}</span>
+              <AttachMaterialDialog budget={materialBudget(draft.leaveDiscussion ? null : discussion)} disabled={busy || !!activeReviewInvitationId}
+                onAttach={attachment => { conversation.saveDraft({ ...draft, requestId: undefined, attachment }); field.current?.focus() }} />
               {controls.kind === 'stop' ? <button type="button" disabled={controls.disabled} onClick={() => {
                 field.current?.focus()
                 void conversation.stop(controls.requestId)

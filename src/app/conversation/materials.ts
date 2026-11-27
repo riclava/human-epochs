@@ -1,5 +1,7 @@
 import type { PoolClient } from "pg";
-import type { ConversationMaterialContext, ConversationMaterialSelection } from "../../contracts/conversation.js";
+import {
+  materialSourceLimit, materialTextLimit, type ConversationMaterialContext, type ConversationMaterialSelection,
+} from "../../contracts/conversation.js";
 import { publishedDiscussions } from "../../courses/catalog.js";
 
 // Without a conversation ID this reads any of the user's published discussions, as activity hand-off does.
@@ -31,7 +33,8 @@ export async function resolveMaterialContext(
     if (!sources.some(existing => existing.id === id)) sources.push(source);
   }
   if (selection.excerpt) sources.push({ ...selection.excerpt, id: "excerpt:" + requestId });
-  if (!sources.length || sources.length > 16 || sources.reduce((size, source) => size + source.text.length, 0) > 32000) return null;
+  if (!sources.length || sources.length > materialSourceLimit
+    || sources.reduce((size, source) => size + source.text.length, 0) > materialTextLimit) return null;
   return { discussionVersion, discussionId: parent?.discussionId ?? requestId, sources };
 }
 

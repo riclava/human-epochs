@@ -2,6 +2,10 @@ import { z } from 'zod'
 import type { PersonalMemorySnapshot } from './personal-memory.js'
 
 export const conversationTextLimit = 4000
+// One material discussion may hold this many sources and characters in total. A single pasted source may use all of it.
+export const materialSourceLimit = 16
+export const materialTextLimit = 32000
+export const materialLabelLimit = 120
 
 export type ConversationMode = 'guided' | 'model'
 
@@ -25,7 +29,7 @@ export const conversationMaterialSelectionSchema = z.strictObject({
   discussionVersion: clean(160).optional(),
   parentRequestId: requestId.optional(),
   sourceIds: z.array(clean(160)).max(16).optional(),
-  excerpt: z.strictObject({ label: clean(120), text: clean(conversationTextLimit) }).optional(),
+  excerpt: z.strictObject({ label: clean(materialLabelLimit), text: clean(materialTextLimit) }).optional(),
 })
 export type ConversationMaterialSelection = z.infer<typeof conversationMaterialSelectionSchema>
 

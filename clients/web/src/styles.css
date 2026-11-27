@@ -277,6 +277,21 @@ button:disabled { cursor: not-allowed; }
 .conversation-toolbar button:enabled:hover { color: var(--color-on-accent); background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
 .conversation-toolbar button:disabled { background: var(--color-disabled); border-color: var(--color-disabled); color: var(--color-disabled-ink); }
 .conversation-compose-wrap > .notice { margin-bottom: var(--space-3); }
+/* Attaching material is secondary to sending, so it keeps the outlined button look inside the toolbar. */
+.conversation-toolbar .attach-material { margin-left: auto; color: var(--color-accent); background: var(--color-panel); border-color: var(--color-control-border); font-weight: 500; }
+.conversation-toolbar .attach-material:enabled:hover { color: var(--color-accent); background: var(--color-accent-soft); border-color: var(--color-accent); }
+.material-status { display: grid; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-small); color: var(--color-muted); }
+.material-status p { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; }
+.material-status span { min-width: 0; overflow-wrap: anywhere; }
+.material-status button { padding: 0 var(--space-2); min-height: 1.75rem; font-size: var(--text-caption); }
+.material-dialog { width: min(calc(100% - var(--space-6)), 40rem); margin: auto; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-panel); color: var(--color-ink); }
+.material-dialog::backdrop { background: rgb(25 40 59 / 45%); }
+/* A minmax track keeps the textarea and file input from widening the dialog past a narrow screen. */
+.material-dialog form { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.material-dialog h2 { margin: 0; font-size: var(--text-section); }
+.material-dialog-help, .material-count { margin: 0; color: var(--color-muted); font-size: var(--text-small); }
+.material-dialog textarea { width: 100%; min-height: 10rem; resize: vertical; }
+.material-dialog input:not([type="file"]) { width: 100%; }
 .has-history .conversation-reading { overflow-y: auto; overscroll-behavior: contain; padding-block: var(--space-6); }
 .conversation-reading:focus-visible { outline-offset: -3px; }
 .has-history .conversation-compose-wrap { padding-block: var(--space-2) max(var(--space-4), env(safe-area-inset-bottom)); }

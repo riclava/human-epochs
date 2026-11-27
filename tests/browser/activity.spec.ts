@@ -92,7 +92,8 @@ async function sendText(page: Page, text: string): Promise<UserConversationTurn>
   expect(turn).toMatchObject({ messageText: text, status: 'complete' })
   expect(conversationContentText(turn.replyBlocks)).toBeTruthy()
   await expect(log(page).getByText(text, { exact: true })).toHaveCount(1)
-  await expect(log(page)).toContainText(conversationContentText(turn.replyBlocks)!)
+  // Each block renders on its own, so each text block is looked for separately.
+  for (const block of turn.replyBlocks ?? []) if (block.kind === 'text') await expect(log(page)).toContainText(block.text)
   return turn
 }
 
@@ -380,8 +381,10 @@ test('旧材料对话保留引用，重新进入后仍可用文字继续讨论',
   await expectTextWorkspace(phone)
   const next = await sendText(phone, '我想了解温度计的原理。')
   await page.reload()
-  await expect(log(page)).toContainText(conversationContentText(next.replyBlocks)!)
-  await expect(log(page).getByRole('group', { name: '引文' })).toContainText(excerpt.text)
+  // The follow-up continues the same material discussion, so the reply may be text and excerpt blocks.
+  expect(next.materialContext?.discussionId).toBe(turn.materialContext?.discussionId)
+  for (const block of next.replyBlocks ?? []) if (block.kind === 'text') await expect(log(page)).toContainText(block.text)
+  await expect(log(page).getByRole('group', { name: '引文' }).first()).toContainText(excerpt.text)
 })
 
 test('到期复习邀请出现在原对话，窄屏键盘可以接受并跨端作答', async ({ page, phone, user, playwright, baseURL }) => {
@@ -813,4 +816,40 @@ test('在侧栏重命名和删除对话，另一台设备看到已删除', async
   await expect(phone.getByRole('heading', { level: 1 })).toHaveText('对话已删除')
   await phone.getByRole('link', { name: '打开最近的对话' }).click()
   await expect(log(phone).getByText('Python 怎么读取 CSV？', { exact: true })).toHaveCount(1)
+})
+
+test('附加原文后提问，接着讨论，结束讨论后回到普通对话', async ({ page, user }) => {
+  await signIn(page, user.email)
+  const status = page.locator('.material-status')
+  await page.getByRole('button', { name: '附加原文' }).click()
+  const dialog = page.getByRole('dialog', { name: '附加原文' })
+  await expect(dialog.getByRole('textbox', { name: '原文' })).toBeFocused()
+  await dialog.getByRole('button', { name: '附加' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('请粘贴原文，或从文件读取。')
+  await dialog.getByLabel('或从文件读取（.txt、.md）').setInputFiles({
+    name: '气象笔记.md', mimeType: 'text/markdown', buffer: Buffer.from('九点测得树荫下的气温为二十度。\n十点升到二十二度。'),
+  })
+  await expect(dialog.getByRole('textbox', { name: '原文' })).toHaveValue('九点测得树荫下的气温为二十度。\n十点升到二十二度。')
+  await expect(dialog.getByRole('textbox', { name: '名称（可选）' })).toHaveValue('气象笔记')
+  await dialog.getByRole('button', { name: '附加' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(composer(page)).toBeFocused()
+  await expect(status).toContainText('已附原文：气象笔记（25 字）')
+
+  await page.reload()
+  await expect(status).toContainText('已附原文：气象笔记', { timeout: 10_000 })
+  const first = await sendText(page, '九点的气温是多少？')
+  expect(first.materialContext?.sources.map(source => source.label)).toEqual(['气象笔记'])
+  await expect(status).toHaveText(/接着讨论：气象笔记/u)
+  await expect(log(page).getByText('查看当轮材料').first()).toBeVisible()
+
+  const second = await sendText(page, '十点呢？')
+  expect(second.materialContext?.discussionId).toBe(first.materialContext?.discussionId)
+
+  await status.getByRole('button', { name: '结束讨论' }).click()
+  await expect(status).toContainText('下一条消息不再讨论：气象笔记')
+  const plain = await sendText(page, '换个话题，怎么认星座？')
+  expect(plain.materialContext).toBeUndefined()
+  await expect(status).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })

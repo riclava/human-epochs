@@ -5,6 +5,9 @@ import { conversationMaterialSelectionSchema } from '../../../src/contracts/conv
 const DraftSchema = z.strictObject({
   messageText: z.string(), requestId: z.uuid().optional(), reviewInvitationId: z.uuid().optional(),
   materialSelection: conversationMaterialSelectionSchema.optional(),
+  // Not sent yet: a source to attach to the next message, and whether that message leaves the current discussion.
+  attachment: z.strictObject({ label: z.string(), text: z.string() }).optional(),
+  leaveDiscussion: z.boolean().optional(),
 })
 type Draft = z.infer<typeof DraftSchema>
 
@@ -22,7 +25,7 @@ export function useConversationDraft(userId: string, conversationId: string) {
     currentDraft.current = value
     setDraft(value)
     try {
-      if (value.messageText) sessionStorage.setItem(key, JSON.stringify(value))
+      if (value.messageText || value.attachment || value.leaveDiscussion) sessionStorage.setItem(key, JSON.stringify(value))
       else sessionStorage.removeItem(key)
     } catch { /* Editing and sending still work without browser storage. */ }
   }, [key])
