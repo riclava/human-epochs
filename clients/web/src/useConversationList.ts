@@ -33,5 +33,8 @@ export function useConversationList(userId: string, onUnauthorized: () => void) 
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [refresh])
 
-  return { ...state, refresh }
+  // A command response already carries the current list.
+  const replace = useCallback((list: ConversationList) => setState({ items: list.conversations, loaded: true, error: false }), [])
+
+  return { ...state, refresh, replace }
 }

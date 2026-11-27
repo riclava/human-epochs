@@ -82,6 +82,21 @@ CREATE TABLE conversations (
 
 CREATE INDEX conversations_by_recent ON conversations (user_id, updated_at DESC, id);
 
+-- A deleted conversation keeps only its ID, so a late send or review command from another device cannot recreate it.
+CREATE TABLE deleted_conversations (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id uuid NOT NULL,
+  deleted_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (user_id, id)
+);
+
+CREATE TABLE conversation_command_receipts (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  command_id uuid NOT NULL,
+  command_fingerprint text NOT NULL CHECK (length(command_fingerprint) = 64),
+  PRIMARY KEY (user_id, command_id)
+);
+
 CREATE TABLE conversation_turns (
   position bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,

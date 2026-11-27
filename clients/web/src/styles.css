@@ -103,6 +103,9 @@ button:disabled { cursor: not-allowed; }
 }
 .primary:enabled:is(:hover, :active) { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
 .primary:disabled { background: var(--color-disabled); border-color: var(--color-disabled); color: var(--color-disabled-ink); }
+/* Irreversible actions, such as deleting a conversation, use the error colour and keep the outlined button shape. */
+.danger { border-color: var(--color-error); color: var(--color-error); }
+.danger:enabled:is(:hover, :active) { border-color: var(--color-error); background: var(--color-error-soft); }
 .form-error { margin-top: var(--space-3); padding: var(--space-2) var(--space-3); color: var(--color-error); background: var(--color-error-soft); border-inline-start: 3px solid var(--color-error); font-size: var(--text-small); }
 .dev-accounts { margin-top: var(--space-5); font-size: var(--text-small); color: var(--color-muted); }
 .dev-accounts summary { width: fit-content; padding-block: var(--space-3); }
@@ -154,6 +157,16 @@ button:disabled { cursor: not-allowed; }
 .conversation-list-header h2 { margin: 0; color: var(--color-muted); font-size: var(--text-caption); font-weight: 600; }
 .new-conversation { padding: var(--space-1) var(--space-3); font-size: var(--text-small); }
 .conversation-list ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.conversation-item { display: flex; align-items: center; gap: var(--space-1); }
+.conversation-item > a { flex: 1; min-width: 0; }
+.conversation-actions-toggle { flex-shrink: 0; min-width: 2rem; padding: var(--space-1); border-color: transparent; background: transparent; color: var(--color-muted); }
+.conversation-actions { display: flex; gap: var(--space-2); padding: var(--space-1) var(--space-3) var(--space-2); }
+.conversation-actions[hidden] { display: none; }
+.conversation-actions button { padding: var(--space-1) var(--space-3); font-size: var(--text-small); }
+.conversation-rename { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-1); padding: var(--space-1) 0; }
+.conversation-rename input { min-width: 0; }
+.conversation-rename button { padding: var(--space-1) var(--space-2); font-size: var(--text-small); }
+.conversation-list-failure { padding-inline: var(--space-3); }
 .conversation-list li a {
   display: block; padding: var(--space-2) var(--space-3); border-radius: var(--radius-control);
   color: var(--color-ink); font-size: var(--text-small); text-decoration: none;
@@ -409,6 +422,8 @@ button:disabled { cursor: not-allowed; }
 .used-memories { margin-top: var(--space-2); color: var(--color-muted); font-size: var(--text-small); }
 .used-memories summary { cursor: pointer; width: fit-content; }
 .used-memories ul { margin: var(--space-1) 0 0; padding-inline-start: var(--space-5); color: var(--color-ink); }
+.conversation-deleted { margin-top: var(--space-6); }
+.conversation-deleted a { color: var(--color-accent); }
 .structured-note { margin: var(--space-1) 0 0; color: var(--color-muted); font-size: var(--text-small); }
 .turn-status { color: var(--color-muted); font-size: var(--text-small); }
 .turn-status button { margin-inline-start: var(--space-2); }

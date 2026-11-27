@@ -10,6 +10,8 @@ type Failure = { action: 'send' | 'stop'; text: string }
 interface Session {
   snapshot: ConversationSnapshot | null
   loadError: boolean
+  // Another device or this one deleted the conversation.
+  deleted: boolean
   exchange: Exchange | null
   stopping: string | null
   failure: Failure | null
@@ -18,6 +20,7 @@ interface Session {
 type Event =
   | { type: 'snapshot'; snapshot: ConversationSnapshot; adoptedDraft?: boolean }
   | { type: 'load_failed' }
+  | { type: 'deleted' }
   | { type: 'memory_saved'; snapshot: PersonalMemorySnapshot }
   | { type: 'sending'; message: SendConversationCommand }
   | { type: 'received'; requestId: string }
@@ -28,7 +31,7 @@ type Event =
   | { type: 'stop_finished'; requestId: string; turn?: ConversationTurn; error?: string }
   | { type: 'dismiss_send_error' }
 
-export const initialConversationSession: Session = { snapshot: null, loadError: false, exchange: null, stopping: null, failure: null }
+export const initialConversationSession: Session = { snapshot: null, loadError: false, deleted: false, exchange: null, stopping: null, failure: null }
 
 function replaceTurn(snapshot: ConversationSnapshot | null, turn?: ConversationTurn) {
   if (!snapshot || !turn) return snapshot
@@ -45,6 +48,7 @@ export function reduceConversationSession(state: Session, event: Event): Session
     case 'snapshot': return { ...state, snapshot: event.snapshot, loadError: false,
       failure: event.adoptedDraft && state.failure?.action === 'send' ? null : state.failure }
     case 'load_failed': return { ...state, loadError: true }
+    case 'deleted': return { ...state, deleted: true, exchange: null }
     case 'memory_saved': return { ...state, snapshot: state.snapshot && { ...state.snapshot, ...event.snapshot } }
     case 'sending': return { ...state, exchange: { phase: 'submitting', message: event.message }, failure: null }
     case 'received':
@@ -70,7 +74,7 @@ export function reduceConversationSession(state: Session, event: Event): Session
   }
 }
 
-export function conversationSessionView({ snapshot, loadError, exchange, stopping, failure }: Session) {
+export function conversationSessionView({ snapshot, loadError, deleted, exchange, stopping, failure }: Session) {
   const turns = snapshot?.turns ?? []
   const latest = turns.at(-1)
   const pending = turns.find(turn => turn.status === 'pending')
@@ -88,7 +92,7 @@ export function conversationSessionView({ snapshot, loadError, exchange, stoppin
     return { turn, status, preview: receiving ? streaming?.preview : undefined, progress: receiving ? streaming?.progress : undefined }
   })
   return {
-    snapshot, loadError, latest, items, hasHistory: items.length > 0, busy, canSend, activeId,
+    snapshot, loadError, deleted, latest, items, hasHistory: items.length > 0, busy, canSend, activeId,
     scrollPreview: streaming?.preview,
     controls: stopId ? { kind: 'stop' as const, requestId: stopId, disabled: !!stopping }
       : { kind: 'send' as const, disabled: !canSend },

@@ -47,7 +47,7 @@ export function ConversationView(props: WorkspacePageProps) {
   return <ConversationPane {...props} conversationId={props.conversationId} />
 }
 
-function ConversationPane({ userId, onUnauthorized, heading, conversationId, onConversationsChanged }:
+function ConversationPane({ userId, onUnauthorized, heading, conversationId, onConversationsChanged, conversationTitle }:
   WorkspacePageProps & { conversationId: string }) {
   const conversation = useConversationSession(userId, conversationId, onUnauthorized)
   const { snapshot, draft, latest, items, busy, canSend, activeId, controls, hasHistory, loadError, sendError, stopError } = conversation
@@ -112,10 +112,18 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
     send(message)
   }
 
+  if (conversation.deleted) return <>
+    <header className="conversation-header"><h1 id={heading.id}>对话已删除</h1></header>
+    <div className="conversation-body"><div className="conversation-column conversation-deleted notice">
+      <p role="status">这个对话已删除，消息和回复都已清除。</p>
+      <a href="#/">打开最近的对话</a>
+    </div></div>
+  </>
+
   return (
     <>
       <header className="conversation-header">
-        <h1 id={heading.id}>{snapshot ? snapshot.title ?? '新对话' : heading.text}</h1>
+        <h1 id={heading.id}>{snapshot ? conversationTitle ?? snapshot.title ?? '新对话' : heading.text}</h1>
         {snapshot && <span className="conversation-mode">{snapshot.mode === 'guided' ? '本地引导' : '在线模型'}</span>}
       </header>
       <div className={hasHistory ? 'conversation-body has-history' : 'conversation-body'}>

@@ -75,7 +75,7 @@ flowchart TB
 | 接入 | Web 与 HTTP · `clients/web`、`src/http` | 提供对话视图、请求校验和路由映射。Cookie 和 HTTP 状态由接入层处理。 | 客户端草稿与视图。 |
 | 应用 | 登录会话 · `src/app/auth.ts` | 核对凭据、创建与结束登录会话，并据此取得用户身份。 | `users` 中的账号与 `sessions.user_id` 关联的登录会话。 |
 | 应用 | 运行设置 · `src/app/agent-settings.ts`、`src/http/agent-settings.ts` | 读取已保存设置，为管理员校验并提交更新。 | `agent_settings` 中的全局参数 `settings`、模型连接 `connection` 和修订号 `revision`。 |
-| 应用 | 对话应用服务 · `src/app/conversation/service.ts`、`src/app/conversation/turns.ts` | `prepareTurn` 收件并领取尝试，随后运行内核、转发正文片段并发布结果。`readSnapshot` 返回一个对话的快照，`listConversations` 按最近使用列出对话。收件和回复发布规则集中在对话记录模块。 | `conversations` 中的对话标题与最近使用时间，`conversation_turns` 中所属对话、原消息、材料讨论分支与快照、回复、引文、状态、尝试序号与领取期限。 |
+| 应用 | 对话应用服务 · `src/app/conversation/service.ts`、`src/app/conversation/turns.ts` | `prepareTurn` 收件并领取尝试，随后运行内核、转发正文片段并发布结果。`readSnapshot` 返回一个对话的快照，`listConversations` 按最近使用列出对话。收件和回复发布规则集中在对话记录模块。 | `conversations` 中的对话标题与最近使用时间，`deleted_conversations` 中已删除的对话 ID，`conversation_command_receipts` 中重命名和删除的收据，`conversation_turns` 中所属对话、原消息、材料讨论分支与快照、回复、引文、状态、尝试序号与领取期限。 |
 | 应用 | 教学上下文 · `src/app/conversation/context.ts` | `loadContext` 按身份和讨论分支读取历史及可用来源，并选择普通对话或材料讲解。 | 每次尝试读取的对话与材料快照。 |
 | 应用 | 对话摘要 | 按对话范围生成可重建摘要。教学上下文按覆盖边界与来源有效性读取。 | `conversation_summaries` 中的覆盖范围、结构化摘要与来源，及后台任务收据。 |
 | 应用 | 记忆提取 · `src/app/memory-extraction.ts` | 后台任务从本人开启提议后的已发布消息生成候选，逐字核对依据并按来源去重。 | `personal_memory_extractions` 中的任务领取、尝试序号和领取时的记忆修订。 |
@@ -101,7 +101,7 @@ Web 的[页面定义](../clients/web/src/workspace-pages.tsx)集中声明路径�
 
 ## 3. 对话请求、执行与恢复
 
-用户可以有多个对话，每个对话有多轮问答。客户端为新对话生成 `conversationId`，地址为 `#/c/<conversationId>`；第一条消息收件时在同一事务里创建对话，标题取这条消息的前 40 个字，之后每次收件更新最近使用时间。尚未发出消息的对话不保存。`GET /api/conversations` 按最近使用返回对话列表，`GET /api/conversations/:conversationId` 返回该对话的快照，不存在的对话返回空快照。`POST /api/conversation` 用 `conversationId` 指定对话，用 `requestId` 标识一次提交，同一请求不能在另一个对话里重放。每个对话同时最多有一条回复在生成，不同对话互不阻塞。材料追问的父消息必须属于同一对话，普通对话的模型历史和摘要也只读当前对话。用 `messageText` 传入用户原话，材料选择使用可选的 `materialSelection`。`kind: 'user'` 的轮次返回 `messageText`、`replyBlocks` 和适用时的材料快照 `materialContext`。`kind: 'review_question'` 的轮次返回 `questionBlocks`。失败重试通过尝试序号区分。同一次尝试可以包含多个模型和工具步骤。步骤共用当次上下文与预算，属于同一请求的执行过程，最终发布一条用户可读的回复。
+用户可以有多个对话，每个对话有多轮问答。客户端为新对话生成 `conversationId`，地址为 `#/c/<conversationId>`；第一条消息收件时在同一事务里创建对话，标题取这条消息的前 40 个字，之后每次收件更新最近使用时间。尚未发出消息的对话不保存。`GET /api/conversations` 按最近使用返回对话列表，`GET /api/conversations/:conversationId` 返回该对话的快照，不存在的对话返回空快照。`POST /api/conversation` 用 `conversationId` 指定对话，用 `requestId` 标识一次提交，同一请求不能在另一个对话里重放。`POST /api/conversations/:conversationId/commands` 受理重命名 `rename` 和删除 `delete`，以稳定的 `commandId` 和命令指纹记收据，重放时返回当前列表。删除在一个事务里移除对话的消息、回复、复习邀请、记忆提议、提取任务和摘要；从这个对话保存的个人记忆保留并清空来源，由讨论开始的活动保留并解除与讨论的关联。被删除的对话 ID 记入 `deleted_conversations`，之后发往它的消息、复习命令和快照读取返回 `410`，迟到的请求不会重建对话。每个对话同时最多有一条回复在生成，不同对话互不阻塞。材料追问的父消息必须属于同一对话，普通对话的模型历史和摘要也只读当前对话。用 `messageText` 传入用户原话，材料选择使用可选的 `materialSelection`。`kind: 'user'` 的轮次返回 `messageText`、`replyBlocks` 和适用时的材料快照 `materialContext`。`kind: 'review_question'` 的轮次返回 `questionBlocks`。失败重试通过尝试序号区分。同一次尝试可以包含多个模型和工具步骤。步骤共用当次上下文与预算，属于同一请求的执行过程，最终发布一条用户可读的回复。
 
 ```mermaid
 sequenceDiagram

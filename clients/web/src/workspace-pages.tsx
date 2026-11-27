@@ -11,6 +11,8 @@ export interface WorkspacePageProps {
   // The conversation in the address, or null while the workspace is choosing one.
   conversationId: string | null
   onConversationsChanged: () => void
+  // The title from the conversation list, which updates first after a rename.
+  conversationTitle?: string
 }
 
 interface WorkspacePage {

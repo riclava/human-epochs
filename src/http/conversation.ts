@@ -3,7 +3,12 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { createActivityService } from "../app/activities/service.js";
 import type { createConversationService } from "../app/conversation/service.js";
-import { conversationTextLimit, reviewInvitationCommandSchema, sendConversationCommandSchema, type ConversationStreamEvent } from "../contracts/conversation.js";
+import {
+  conversationCommandSchema, conversationTextLimit, conversationTitleLimit, reviewInvitationCommandSchema, sendConversationCommandSchema,
+  type ConversationStreamEvent,
+} from "../contracts/conversation.js";
+
+const deletedMessage = { message: "这个对话已删除。请打开其他对话或新建对话。" };
 
 export function registerConversation(
   api: FastifyInstance,
@@ -14,7 +19,18 @@ export function registerConversation(
   api.get<{ Params: { conversationId: string } }>("/conversations/:conversationId", async (request, reply) => {
     const id = z.uuid().toLowerCase().safeParse(request.params.conversationId);
     if (!id.success) return reply.code(404).send({ message: "找不到这个对话。" });
-    return conversation.readSnapshot(request.user!.id, id.data);
+    const snapshot = await conversation.readSnapshot(request.user!.id, id.data);
+    return snapshot ?? reply.code(410).send(deletedMessage);
+  });
+  api.post<{ Params: { conversationId: string } }>("/conversations/:conversationId/commands", async (request, reply) => {
+    const id = z.uuid().toLowerCase().safeParse(request.params.conversationId);
+    const command = conversationCommandSchema.safeParse(request.body);
+    if (!id.success) return reply.code(404).send({ message: "找不到这个对话。" });
+    if (!command.success) return reply.code(400).send({ message: `请输入 1 至 ${conversationTitleLimit} 个字的标题。` });
+    const result = await conversation.runConversationCommand(request.user!.id, id.data, command.data);
+    if (result.kind === "missing") return reply.code(404).send({ message: "找不到这个对话。请刷新对话列表。" });
+    if (result.kind === "conflict") return reply.code(409).send({ message: "这个操作已用于其他内容。请重新操作。" });
+    return result.list;
   });
   api.get("/conversation/materials", () => conversation.listMaterials());
 
@@ -25,7 +41,7 @@ export function registerConversation(
     const result = await conversation.applyReviewInvitationCommand(userId, command.data);
     if (result === "missing") return reply.code(404).send({ message: "这条复习邀请已不可用。" });
     if (result === "conflict") return reply.code(409).send({ message: "对话已更新，请查看最新消息。" });
-    return conversation.readSnapshot(userId, command.data.conversationId);
+    return await conversation.readSnapshot(userId, command.data.conversationId) ?? reply.code(410).send(deletedMessage);
   });
 
   api.post<{ Params: { requestId: string } }>("/conversation/:requestId/stop", async (request, reply) => {
@@ -46,6 +62,7 @@ export function registerConversation(
     if (result.kind === "invalid_material") return reply.code(400).send({ message: "请重新选择可访问的材料。每段讨论最多保留 16 个来源，原文合计最多 32,000 个字符。" });
     if (result.kind === "invalid_review") return reply.code(409).send({ message: "这道复习题已不可用。请查看最新消息。" });
     if (result.kind === "conflict") return reply.code(409).send({ message: result.message });
+    if (result.kind === "deleted") return reply.code(410).send(deletedMessage);
 
     reply.type("text/event-stream; charset=utf-8").header("X-Accel-Buffering", "no");
     const frame = (event: ConversationStreamEvent) => `data: ${JSON.stringify(event)}\n\n`;

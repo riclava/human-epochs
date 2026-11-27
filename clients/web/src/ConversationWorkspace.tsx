@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import type { User } from '../../../src/contracts/session'
+import { ConversationListPanel } from './ConversationListPanel'
 import { useConversationList } from './useConversationList'
 import { conversationHref, useWorkspacePages } from './workspace-pages'
 
@@ -66,30 +67,16 @@ export function ConversationWorkspace({ user, onUnauthorized, onSignOut, brand }
               {page.icon}{page.title}
             </a>)}
           </nav>
-          <section className="conversation-list" aria-labelledby="conversation-list-heading">
-            <div className="conversation-list-header">
-              <h2 id="conversation-list-heading">最近的对话</h2>
-              <button type="button" className="new-conversation" onClick={startConversation}>新对话</button>
-            </div>
-            {conversations.error && <div className="conversation-list-error">
-              <p role="alert">暂时无法读取对话列表。</p>
-              <button type="button" onClick={conversations.refresh}>重新读取</button>
-            </div>}
-            {conversations.loaded && !conversations.error && !conversations.items.length &&
-              <p className="conversation-list-empty">发出第一条消息后，对话会出现在这里。</p>}
-            {conversations.items.length > 0 && <ul>
-              {conversations.items.map(item => <li key={item.conversationId}>
-                <a href={conversationHref(item.conversationId)} onClick={onNavigationClick}
-                  aria-current={item.conversationId === conversationId ? 'page' : undefined}>{item.title}</a>
-              </li>)}
-            </ul>}
-          </section>
+          <ConversationListPanel userId={user.id} items={conversations.items} loaded={conversations.loaded} error={conversations.error}
+            currentId={conversationId} onReplace={conversations.replace} onRefresh={conversations.refresh}
+            onNavigate={onNavigationClick} onStart={startConversation} onUnauthorized={onUnauthorized} />
           <div className="sidebar-account"><span className="avatar" aria-hidden="true">{Array.from(user.displayName)[0]}</span><span>{user.displayName}</span><button onClick={onSignOut}>退出</button></div>
         </div>
       </aside>
       <main ref={main} id="main" tabIndex={-1} className={paneClassName} aria-labelledby={heading.id}>
         <View key={conversationId ?? href} heading={heading} userId={user.id} onUnauthorized={onUnauthorized}
-          conversationId={conversationId} onConversationsChanged={conversations.refresh} />
+          conversationId={conversationId} onConversationsChanged={conversations.refresh}
+          conversationTitle={conversations.items.find(item => item.conversationId === conversationId)?.title} />
       </main>
     </div>
   )

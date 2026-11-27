@@ -8,7 +8,7 @@ import { readReviewInvitations, scheduleReviewInvitation } from "../../review/in
 import type { TurnReply } from "../../runtime/run-turn.js";
 import { inTransaction } from "../../storage/transaction.js";
 import { enqueueExtraction } from "../memory-candidates.js";
-import { touchConversation } from "./conversations.js";
+import { isDeletedConversation, touchConversation } from "./conversations.js";
 import { enqueueSummary } from "./summaries.js";
 import { discussionChain } from "./history.js";
 import { resolveMaterialContext, namedMaterial } from "./materials.js";
@@ -87,7 +87,7 @@ type Claim = { attempt: number; deadline: Date };
 type Receipt =
   | { kind: "conflict"; message: string }
   | { kind: "existing"; turn: ConversationTurn; attempt: number }
-  | { kind: "invalid_material" | "invalid_review" }
+  | { kind: "invalid_material" | "invalid_review" | "deleted" }
   | ({ kind: "claimed"; materialContext?: ConversationMaterialContext; reviewInvitationId?: string } & Claim);
 
 export function receiveTurn(pool: Pool, userId: string, command: SendConversationCommand): Promise<Receipt> {
@@ -117,6 +117,7 @@ export function receiveTurn(pool: Pool, userId: string, command: SendConversatio
       return { kind: "claimed", ...retry.rows[0]!, materialContext: existing.materialContext ?? undefined, reviewInvitationId: existing.reviewInvitationId ?? undefined };
     }
 
+    if (await isDeletedConversation(db, userId, conversationId)) return { kind: "deleted" };
     // Each conversation has at most one reply in progress. Other conversations of the same user are independent.
     const open = (await db.query<StoredTurn>(`
       SELECT ${columns} FROM conversation_turns

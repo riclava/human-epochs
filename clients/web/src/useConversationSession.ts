@@ -44,6 +44,7 @@ export function useConversationSession(userId: string, conversationId: string, o
       } catch (error) {
         if (controller.signal.aborted) return
         if (error instanceof HttpError && error.status === 401) onUnauthorized()
+        else if (error instanceof HttpError && error.status === 410) dispatch({ type: 'deleted' })
         else dispatch({ type: 'load_failed' })
       }
     }
@@ -167,5 +168,6 @@ async function sendFailure(error: unknown, signal: AbortSignal) {
     return detail?.message ?? '请检查消息内容后重新发送。'
   }
   if (error instanceof HttpError && error.status === 409) return '对话已更新。请查看最新消息后再发送。'
+  if (error instanceof HttpError && error.status === 410) return '这个对话已删除。请打开其他对话或新建对话。'
   return '暂时无法确认回复。请查看对话记录后重试。'
 }

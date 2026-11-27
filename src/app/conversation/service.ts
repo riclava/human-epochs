@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { ConversationProgress, ConversationSnapshot, ConversationTurn, ReviewInvitationCommand, SendConversationCommand, UserConversationTurn } from "../../contracts/conversation.js";
+import type { ConversationCommand, ConversationProgress, ConversationSnapshot, ConversationTurn, ReviewInvitationCommand, SendConversationCommand, UserConversationTurn } from "../../contracts/conversation.js";
 import { publishedDiscussions } from "../../courses/catalog.js";
 import { readDueReviewInvitation } from "../../review/invitations.js";
 import type { ObserveRun } from "../../runtime/diagnostics.js";
@@ -9,7 +9,7 @@ import { inTransaction } from "../../storage/transaction.js";
 import type { createAgentSettingsService } from "../agent-settings.js";
 import { readPersonalMemories } from "../personal-memories.js";
 import { loadContext } from "./context.js";
-import { listConversations, readConversationTitle } from "./conversations.js";
+import { isDeletedConversation, listConversations, readConversationTitle, runConversationCommand } from "./conversations.js";
 import { listMaterials } from "./materials.js";
 import { runReviewInvitationCommand } from "./review-invitations.js";
 import { isActiveAttempt, publishTurn, readTurns, receiveTurn, stopActiveTurn, type TurnMemory } from "./turns.js";
@@ -18,6 +18,7 @@ type PreparedTurn =
   | { kind: "conflict"; message: string }
   | { kind: "invalid_material" }
   | { kind: "invalid_review" }
+  | { kind: "deleted" }
   | { kind: "existing"; turn: ConversationTurn }
   | { kind: "claimed"; run: (onTextDelta: ReplyDelta, onProgress: (progress: ConversationProgress) => void) => Promise<ConversationTurn> };
 
@@ -105,7 +106,9 @@ export function createConversationService(
   }
 
   // A conversation that does not exist yet reads as a new, empty conversation.
-  async function readSnapshot(userId: string, conversationId: string): Promise<ConversationSnapshot> {
+  // A deleted conversation has no snapshot.
+  async function readSnapshot(userId: string, conversationId: string): Promise<ConversationSnapshot | null> {
+    if (await isDeletedConversation(pool, userId, conversationId)) return null;
     const [{ turns, title, reviewInvitation, personal }, { onlineModelAvailable }] = await Promise.all([inTransaction(pool, async db => {
       await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
       const turns = await readTurns(db, userId, conversationId);
@@ -120,6 +123,8 @@ export function createConversationService(
   }
 
   return { prepareTurn, stopTurn, readSnapshot, listMaterials, listConversations: (userId: string) => listConversations(pool, userId),
+    runConversationCommand: (userId: string, conversationId: string, command: ConversationCommand) =>
+      runConversationCommand(pool, userId, conversationId, command),
     applyReviewInvitationCommand: (userId: string, command: ReviewInvitationCommand) => runReviewInvitationCommand(pool, userId, command, now()),
   };
 }

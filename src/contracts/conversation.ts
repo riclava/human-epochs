@@ -200,6 +200,13 @@ export function conversationTitle(text: string) {
   return characters.length > conversationTitleLimit ? characters.slice(0, conversationTitleLimit - 1).join('') + '…' : line
 }
 
+// Rename and delete carry a stable command ID. A replayed command returns the current list without acting again.
+export const conversationCommandSchema = z.discriminatedUnion('operation', [
+  z.strictObject({ operation: z.literal('rename'), commandId: z.uuid().toLowerCase(), title: clean(conversationTitleLimit) }),
+  z.strictObject({ operation: z.literal('delete'), commandId: z.uuid().toLowerCase() }),
+])
+export type ConversationCommand = z.infer<typeof conversationCommandSchema>
+
 // A conversation that has no turns yet is a new conversation: it has an ID but no title until its first message.
 export interface ConversationSnapshot extends PersonalMemorySnapshot {
   conversationId: string
