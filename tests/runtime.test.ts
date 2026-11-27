@@ -7,6 +7,7 @@ import type { MaterialPrompt, ModelMessage, ConversationMessage } from "../src/r
 import { createTurnRunner, type TurnContext } from "../src/runtime/run-turn.js";
 import { conversationContentText } from "../src/contracts/conversation.js";
 import { defaultAgentSettings } from "../src/contracts/agent-settings.js";
+import { sourceParts } from "../src/runtime/tools/read-source.js";
 import { conversationCitations, modelChunk } from "./fixtures/conversation-stream.js";
 
 const deadline = () => new Date(Date.now() + 90_000);
@@ -217,7 +218,10 @@ test("the model loop pairs tool errors with their calls and accepts citations on
     assert.equal(message.toolCallId, id);
     assert.deepEqual(Object.keys(JSON.parse(message.content)), ["error"]);
   }
-  assert.deepEqual(background, { role: "tool", toolCallId: "background", content: JSON.stringify(first) });
+  // The 4,201-character source is read in parts; the first read returns part 1 of 2.
+  const [firstPart] = sourceParts(first.text);
+  assert.deepEqual(background, { role: "tool", toolCallId: "background",
+    content: JSON.stringify({ id: first.id, label: first.label, part: 1, parts: 2, text: firstPart }) });
   assert.equal(result.kind, "complete");
   assert.equal(result.output.explanationSource, "excerpt");
   assert.notEqual(conversationContentText(result.output.replyBlocks), "模型给出的归档结论。");

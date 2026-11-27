@@ -1,7 +1,6 @@
 import type { Pool, PoolClient } from "pg";
-import type { ConversationSource } from "../contracts/conversation.js";
 import type { LearningCommand, LearningRecord, LearningTopic, ReviewResult } from "../contracts/learning.js";
-import { reviewSourceAvailable } from "./invitations.js";
+import { reviewSourceAvailable, type SavedSource } from "./invitations.js";
 import type { ReviewOutcome, ReviewProposal } from "./proposal.js";
 
 // Stored in the same transaction as the feedback it judges, so a published answer always has its result.
@@ -23,7 +22,7 @@ interface InvitationRow {
   questionRequestId: string | null;
   cancelled: boolean;
   discussionVersion: string | null;
-  sources: ConversationSource[];
+  sources: SavedSource[];
   conversationId: string;
   conversationTitle: string | null;
 }

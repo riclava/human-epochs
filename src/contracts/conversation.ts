@@ -4,7 +4,9 @@ import type { PersonalMemorySnapshot } from './personal-memory.js'
 export const conversationTextLimit = 4000
 // One material discussion may hold this many sources and characters in total. A single pasted source may use all of it.
 export const materialSourceLimit = 16
-export const materialTextLimit = 32000
+export const materialTextLimit = 500000
+// The opening of a source shown with a turn. The full text stays in the material store.
+export const materialPreviewLimit = 600
 export const materialLabelLimit = 120
 
 export type ConversationMode = 'guided' | 'model'
@@ -42,10 +44,19 @@ export const sendConversationCommandSchema = z.strictObject({
 }).refine(message => !(message.reviewInvitationId && message.materialSelection))
 export type SendConversationCommand = z.infer<typeof sendConversationCommandSchema>
 
+// What a turn shows about each source it read: the name, total length and the opening of the text.
+export interface MaterialSourceView {
+  id: string
+  label: string
+  length: number
+  preview: string
+  truncated: boolean
+}
+
 export interface ConversationMaterialContext {
   discussionVersion: string | null
   discussionId: string
-  sources: ConversationSource[]
+  sources: MaterialSourceView[]
 }
 
 const citationSchema = z.strictObject({ sourceId: z.string().min(1), label: z.string(), quote: z.string().min(1) })

@@ -10,12 +10,27 @@ const proposalSchema = z.strictObject({
 
 export type ReviewProposal = Omit<z.infer<typeof proposalSchema>, "sourceId"> & { source: ConversationSource };
 
+export const evidencePassageLimit = 3000;
+
+// A long source keeps only the passage around the quote as review evidence, so it reads as whole sentences.
+export function evidencePassage(text: string, quote: string) {
+  if (text.length <= evidencePassageLimit) return text;
+  const at = text.indexOf(quote);
+  const margin = Math.max(0, Math.floor((evidencePassageLimit - quote.length) / 2));
+  let start = Math.max(0, at - margin);
+  let end = Math.min(text.length, at + quote.length + margin);
+  const isBreak = (character: string | undefined) => !!character && "。！？\n".includes(character);
+  for (let index = start; index < at; index++) if (isBreak(text[index])) { start = index + 1; break; }
+  for (let index = end - 1; index >= at + quote.length; index--) if (isBreak(text[index])) { end = index + 1; break; }
+  return text.slice(start, end).trim();
+}
+
 export function reviewProposal(value: unknown, sources: ConversationSource[]): ReviewProposal | undefined {
   const parsed = proposalSchema.safeParse(value);
   if (!parsed.success) return;
   const { sourceId, ...draft } = parsed.data;
   const source = sources.find(candidate => candidate.id === sourceId && candidate.text.includes(draft.quote));
-  if (source) return { ...draft, source };
+  if (source) return { ...draft, source: { ...source, text: evidencePassage(source.text, draft.quote) } };
 }
 
 export const reviewOutcomes = ["recalled", "partial", "forgotten"] as const;

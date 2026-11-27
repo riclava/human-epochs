@@ -15,3 +15,15 @@ test('the next interval moves the same way as the result', () => {
   assert.equal(intervalForOutcome(5, 'partial'), 5)
   assert.equal(intervalForOutcome(14, 'recalled'), 14)
 })
+
+test('long review evidence keeps whole sentences around the quote', async () => {
+  const { evidencePassage, evidencePassageLimit } = await import('../src/review/proposal.js')
+  const filler = '这是一句填充的话。'.repeat(800)
+  const quote = '离心结束后等待转子完全停止再开盖。'
+  const text = filler + quote + filler
+  const passage = evidencePassage(text, quote)
+  assert.ok(passage.includes(quote))
+  assert.ok(passage.length <= evidencePassageLimit)
+  assert.ok(passage.startsWith('这是') && passage.endsWith('。'), 'the passage starts and ends at sentence breaks')
+  assert.equal(evidencePassage('短的原文。', '短的'), '短的原文。')
+})

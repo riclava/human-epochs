@@ -133,6 +133,17 @@ CREATE INDEX conversation_by_position ON conversation_turns (user_id, conversati
 CREATE INDEX conversation_discussion_history ON conversation_turns (user_id, (material_context->>'discussionId'), position)
   WHERE material_context IS NOT NULL;
 
+-- A source the user attached, stored once. Turns that read it keep only its ID, name, length and opening.
+CREATE TABLE materials (
+  user_id uuid NOT NULL,
+  source_id text NOT NULL CHECK (source_id LIKE 'excerpt:%'),
+  request_id uuid NOT NULL,
+  label text NOT NULL,
+  text text NOT NULL CHECK (length(text) BETWEEN 1 AND 500000),
+  PRIMARY KEY (user_id, source_id),
+  FOREIGN KEY (user_id, request_id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE
+);
+
 CREATE TABLE review_invitations (
   user_id uuid NOT NULL,
   id uuid NOT NULL,

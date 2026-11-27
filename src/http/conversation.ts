@@ -53,7 +53,8 @@ export function registerConversation(
     return turn ? { turn } : reply.code(404).send(missing);
   });
 
-  api.post("/conversation", async (request, reply) => {
+  // A message may carry a newly attached source of up to 500,000 characters.
+  api.post("/conversation", { bodyLimit: 4 * 1024 * 1024 }, async (request, reply) => {
     const parsed = sendConversationCommandSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: `请输入 1 至 ${conversationTextLimit} 个字符，并重新发送。` });
     const requestId = parsed.data.requestId;

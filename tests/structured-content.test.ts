@@ -5,7 +5,7 @@ import { createApp } from '../src/app/create-app.js'
 import type { ConversationSnapshot, UserConversationTurn } from '../src/contracts/conversation.js'
 import type { MaterialPrompt } from '../src/runtime/model.js'
 import { createTestUser, removeTestUser } from './fixtures/activity.js'
-import { readConversationTurn } from './fixtures/conversation-stream.js'
+import { conversationCitations, readConversationTurn } from './fixtures/conversation-stream.js'
 import { login, useTestDatabase } from './fixtures/test-database.js'
 
 // Every user in this file talks in a conversation with this ID; each user gets their own conversation row.
@@ -216,12 +216,71 @@ test('a pasted source may be long, later sources join the discussion, and the di
   const rootId = randomUUID()
   const root = await readConversationTurn((await ask(rootId, { excerpt: long })).payload, 'text/event-stream')
   assert.equal(root.status, 'complete')
-  assert.equal(root.materialContext?.sources[0]?.text.length, 18000)
+  assert.deepEqual({ ...root.materialContext?.sources[0], preview: undefined },
+    { id: 'excerpt:' + rootId, label: '长笔记', length: 18000, preview: undefined, truncated: true }, 'a turn shows the length and only the opening')
+  assert.equal(root.materialContext?.sources[0]?.preview, long.text.slice(0, 600))
 
   const more = await readConversationTurn((await ask(randomUUID(), { parentRequestId: rootId, excerpt: { label: '补充', text: '另一段。' } })).payload, 'text/event-stream')
   assert.deepEqual(more.materialContext?.sources.map(source => source.label), ['长笔记', '补充'])
   assert.equal(more.materialContext?.discussionId, root.materialContext?.discussionId)
 
-  const overflow = await ask(randomUUID(), { parentRequestId: more.requestId, excerpt: { label: '太多', text: '字'.repeat(14001) } })
+  const overflow = await ask(randomUUID(), { parentRequestId: more.requestId, excerpt: { label: '太多', text: '字'.repeat(482_000) } })
   assert.equal(overflow.statusCode, 400, 'the discussion stays within its total character limit')
+})
+
+test('a long document is stored once, read by search and parts, and leaves with its conversation', { timeout: 15_000 }, async t => {
+  const user = await createTestUser(pool)
+  t.after(() => removeTestUser(pool, user.id))
+  const conclusion = '关键结论：光反应发生在类囊体膜上。'
+  const filler = Array.from({ length: 400 }, (_, n) => `第 ${n + 1} 节：` + '这是讲义里的一段铺垫说明。'.repeat(20)).join('\n')
+  const book = { label: '光合作用讲义', text: filler + '\n' + conclusion + '\n' + filler }
+  const bodies: string[] = []
+  let step = 0
+  let citeUnread = false
+  const server = createApp(pool, async ({ messages }) => {
+    bodies.push(JSON.stringify(messages))
+    step++
+    const prompt = JSON.parse(messages[0]!.content!)
+    const sourceId = prompt.sources[0].id
+    if (step === 1) return { kind: 'tool_calls', text: null, calls: [{ id: 'find', name: 'search_source', arguments: JSON.stringify({ query: '光反应发生在哪里' }) }] }
+    if (step === 2) {
+      const { results } = JSON.parse(String(messages.at(-1)!.content))
+      return { kind: 'tool_calls', text: null, calls: [{ id: 'read', name: 'read_source', arguments: JSON.stringify({ sourceId, part: results[0].part }) }] }
+    }
+    // Section 200 is far from the conclusion in both copies of the filler, so its part is never read.
+    const quote = citeUnread ? '第 200 节：这是讲义里的一段铺垫说明。' : conclusion
+    return { kind: 'text', text: JSON.stringify({ blocks: [{ kind: 'text', text: '讲义说光反应在类囊体膜上。', citations: [{ sourceId, quote }] }],
+      review: { topic: '光反应位置', question: '光反应在哪里进行？', answer: '类囊体膜上。', afterDays: 2, sourceId, quote } }) }
+  })
+  t.after(() => server.close())
+  const cookie = await login(server, user.email)
+  const conversation = randomUUID()
+  const ask = (requestId: string, messageText: string, materialSelection: object) => server.inject({ method: 'POST', url: '/api/conversation',
+    headers: { cookie }, payload: { conversationId: conversation, requestId, messageText, materialSelection } })
+    .then(response => readConversationTurn(response.payload, String(response.headers['content-type'])))
+
+  const rootId = randomUUID()
+  const root = await ask(rootId, '光反应在哪里发生？', { excerpt: book })
+  assert.equal(root.explanationSource, 'model')
+  assert.deepEqual(conversationCitations(root.replyBlocks).map(citation => citation.quote), [conclusion])
+  assert.ok(bodies.every(body => body.length < 20_000), 'the model never receives the whole document')
+  assert.ok(!bodies[0]!.includes(conclusion), 'the first call sees only the catalog')
+
+  const stored = await pool.query(`SELECT length(text) AS length FROM materials WHERE user_id = $1`, [user.id])
+  assert.deepEqual(stored.rows, [{ length: book.text.length }], 'the document is stored once')
+  const evidence = await pool.query(`SELECT length(proposal->'source'->>'text') AS length FROM review_invitations WHERE user_id = $1`, [user.id])
+  assert.ok(evidence.rows[0]!.length <= 3000, 'review evidence keeps only the passage around the quote')
+
+  step = 0
+  citeUnread = true
+  const followUp = await ask(randomUUID(), '再说说铺垫部分？', { parentRequestId: rootId })
+  assert.equal(followUp.explanationSource, 'excerpt', 'a citation from a part that was not read is rejected')
+  const sizes = await pool.query(`SELECT length(material_context::text) AS size FROM conversation_turns WHERE user_id = $1`, [user.id])
+  assert.ok(sizes.rows.every(row => row.size < 2_000), 'turns keep a reference, not a copy of the document')
+  assert.equal((await pool.query(`SELECT 1 FROM materials WHERE user_id = $1`, [user.id])).rowCount, 1)
+
+  const removed = await server.inject({ method: 'POST', url: `/api/conversations/${conversation}/commands`, headers: { cookie },
+    payload: { operation: 'delete', commandId: randomUUID() } })
+  assert.equal(removed.statusCode, 200, removed.payload)
+  assert.equal((await pool.query(`SELECT 1 FROM materials WHERE user_id = $1`, [user.id])).rowCount, 0, 'deleting the conversation deletes the document')
 })

@@ -877,7 +877,8 @@ test('published material supports cited follow-ups and one shared activity acros
 
   const first = await terminalTurn(await send(desktop, randomUUID(), source.question, { discussionVersion: source.discussionVersion }))
   assert.equal(first.status, 'complete')
-  assert.deepEqual(first.materialContext?.sources, source.sources)
+  assert.deepEqual(first.materialContext?.sources, source.sources.map(({ id, label, text }) =>
+    ({ id, label, length: text.length, preview: text, truncated: false })))
   assert.ok(conversationCitations(first.replyBlocks).length)
   const extra = source.supplements[0]
   assert.ok(!JSON.stringify(first).includes(extra.text))
@@ -890,7 +891,7 @@ test('published material supports cited follow-ups and one shared activity acros
   for (const turn of [first, last]) {
     for (const citation of conversationCitations(turn.replyBlocks)) {
       assert.ok(citation.quote.trim())
-      assert.ok(turn.materialContext?.sources.some(item => item.id === citation.sourceId && item.text.includes(citation.quote)))
+      assert.ok(turn.materialContext?.sources.some(item => item.id === citation.sourceId && item.preview.includes(citation.quote)))
     }
   }
   assert.equal((await pool.query('SELECT 1 FROM activities WHERE user_id = $1', [user.id])).rowCount, 0)
@@ -986,7 +987,8 @@ test('a long discussion reads selected evidence across model calls and publishes
       calls++
       if (calls === 1) {
         assert.deepEqual(JSON.parse(body.messages[1].content).sources, [
-          { id: 'excerpt:' + rootRequestId, label: background.label }, { id: source.id, label: calibration.label },
+          { id: 'excerpt:' + rootRequestId, label: background.label, length: background.text.length, parts: 1 },
+          { id: source.id, label: calibration.label, length: calibration.text.length, parts: 1 },
         ])
         assert.ok(!JSON.stringify(body).includes(quote))
         return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [call] } }] })
@@ -994,7 +996,7 @@ test('a long discussion reads selected evidence across model calls and publishes
       assert.deepEqual(body.messages[2], { role: 'assistant', content: null, tool_calls: [call] })
       const { content, ...toolMessage } = body.messages[3]
       assert.deepEqual(toolMessage, { role: 'tool', tool_call_id: call.id })
-      assert.deepEqual(JSON.parse(content), source)
+      assert.deepEqual(JSON.parse(content), { id: source.id, label: source.label, part: 1, parts: 1, text: source.text })
       if (calls === 2) {
         assert.equal(body.messages.length, 4)
         return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [repeatedCall] } }] })
@@ -1005,7 +1007,7 @@ test('a long discussion reads selected evidence across model calls and publishes
       assert.deepEqual(body.messages[4], { role: 'assistant', content: null, tool_calls: [repeatedCall] })
       const { content: reference, ...repeatedMessage } = body.messages[5]
       assert.deepEqual(repeatedMessage, { role: 'tool', tool_call_id: repeatedCall.id })
-      assert.deepEqual(JSON.parse(reference), { id: source.id, previousToolCallId: call.id })
+      assert.deepEqual(JSON.parse(reference), { id: source.id, part: 1, previousToolCallId: call.id })
       notifyFinalCall()
       await allowReply
       const text = JSON.stringify({ blocks: [{ kind: 'text', text: '校准完成时间是 09:05。', citations: [{ sourceId: source.id, quote }] }] })

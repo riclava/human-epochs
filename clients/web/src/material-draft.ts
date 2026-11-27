@@ -25,7 +25,7 @@ export function activeDiscussion(turns: readonly ConversationTurn[]): ActiveDisc
       requestId: turn.requestId,
       labels: sources.map(source => source.label),
       sourceCount: sources.length,
-      textLength: sources.reduce((size, source) => size + source.text.length, 0),
+      textLength: sources.reduce((size, source) => size + source.length, 0),
     }
   }
   return null

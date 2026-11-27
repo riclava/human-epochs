@@ -4,8 +4,10 @@ import { activeDiscussion, describeLabels, materialBudget, materialSelectionFor 
 import type { ConversationTurn } from '../src/contracts/conversation.js'
 
 const turn = (requestId: string, status: ConversationTurn['status'], sources?: { id: string; label: string; text: string }[]): ConversationTurn => ({
+  // Turns show each source's length and opening, as the conversation snapshot does.
   kind: 'user', requestId, status, messageText: requestId, replyBlocks: null,
-  ...(sources ? { materialContext: { discussionVersion: null, discussionId: requestId, sources } } : {}),
+  ...(sources ? { materialContext: { discussionVersion: null, discussionId: requestId,
+    sources: sources.map(({ id, label, text }) => ({ id, label, length: text.length, preview: text, truncated: false })) } } : {}),
 })
 const notes = [{ id: 'a', label: '气象笔记', text: '九点二十度。' }, { id: 'b', label: '补充', text: '十点二十二度。' }]
 
@@ -27,7 +29,7 @@ test('the next message carries the continued discussion, a new source, both or n
   assert.deepEqual(materialSelectionFor(discussion, attachment, true), { excerpt: attachment })
   assert.equal(materialSelectionFor(discussion, undefined, true), undefined)
   assert.equal(materialSelectionFor(null, undefined, false), undefined)
-  assert.deepEqual(materialBudget(discussion), { text: 32000 - 13, sources: 14 })
+  assert.deepEqual(materialBudget(discussion), { text: 500_000 - 13, sources: 14 })
   assert.equal(describeLabels(['甲', '乙', '丙']), '甲、乙 等 3 份')
 })
 

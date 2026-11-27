@@ -863,20 +863,22 @@ test('附加 PDF 时选择页码范围，Word 读取正文，读不出文字时�
   const text = dialog.getByRole('textbox', { name: '原文' })
   const name = dialog.getByRole('textbox', { name: '名称（可选）' })
 
-  // Seven pages of about 6,100 characters each: the first five fit in one discussion.
+  // Ninety pages of about 6,100 characters each: about 550,000 characters, more than one discussion holds.
   const pageText = (n: number) => Array.from({ length: 70 }, (_, line) => `Page ${n} line ${line} ` + 'lorem ipsum '.repeat(6)).join('\n')
-  await file.setInputFiles({ name: 'lecture.pdf', mimeType: 'application/pdf', buffer: makePdf([1, 2, 3, 4, 5, 6, 7].map(pageText)) })
-  await expect(dialog.getByRole('status')).toContainText('整份文件 7 页', { timeout: 15_000 })
-  await expect(dialog.getByRole('status')).toContainText('已选第 1–5 页')
+  await file.setInputFiles({ name: 'lecture.pdf', mimeType: 'application/pdf', buffer: makePdf(Array.from({ length: 90 }, (_, index) => pageText(index + 1))) })
+  const status = dialog.getByRole('status')
+  await expect(status).toContainText('整份文件 90 页', { timeout: 30_000 })
+  const chosen = Number(/已选第 1–(\d+) 页/u.exec(await status.textContent() ?? '')?.[1])
+  expect(chosen).toBeGreaterThan(70)
+  expect(chosen).toBeLessThan(90)
   await expect(text).toHaveValue(/^【第 1 页】\nPage 1 line 0 /u)
-  await expect(text).toHaveValue(/【第 5 页】\nPage 5 line 0 /u)
-  await expect(text).not.toHaveValue(/【第 6 页】/u)
-  await expect(name).toHaveValue('lecture（第 1–5 页）')
-  const range = dialog.getByRole('group', { name: '页码范围（共 7 页）' })
-  await range.getByRole('spinbutton', { name: '到第 页' }).fill('7')
-  await range.getByRole('spinbutton', { name: '从第 页' }).fill('6')
-  await expect(name).toHaveValue('lecture（第 6–7 页）')
-  await expect(text).toHaveValue(/^【第 6 页】\nPage 6 line 0 /u)
+  await expect(text).not.toHaveValue(/【第 90 页】/u)
+  await expect(name).toHaveValue(`lecture（第 1–${chosen} 页）`)
+  const range = dialog.getByRole('group', { name: '页码范围（共 90 页）' })
+  await range.getByRole('spinbutton', { name: '从第 页' }).fill(String(chosen))
+  await range.getByRole('spinbutton', { name: '到第 页' }).fill('90')
+  await expect(name).toHaveValue(`lecture（第 ${chosen}–90 页）`)
+  await expect(text).toHaveValue(new RegExp(`^【第 ${chosen} 页】\\nPage ${chosen} line 0 `, 'u'))
 
   await file.setInputFiles({ name: 'notes.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     buffer: makeDocx(['光反应在类囊体膜上进行。', '暗反应在叶绿体基质中进行。']) })
@@ -890,12 +892,12 @@ test('附加 PDF 时选择页码范围，Word 读取正文，读不出文字时�
   await expect(dialog.getByRole('alert')).toContainText('另存为 .docx')
 
   await file.setInputFiles({ name: 'long.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    buffer: makeDocx(['长'.repeat(33_000)]) })
-  await expect(dialog.getByRole('status')).toContainText('超过这段讨论还能放的 32,000 字')
-  await dialog.getByRole('button', { name: '只保留前 32,000 字' }).click()
+    buffer: makeDocx(['长'.repeat(501_000)]) })
+  await expect(dialog.getByRole('status')).toContainText('超过这段讨论还能放的 500,000 字')
+  await dialog.getByRole('button', { name: '只保留前 500,000 字' }).click()
   await expect(name).toHaveValue('long（节选）')
   await dialog.getByRole('button', { name: '附加', exact: true }).click()
-  await expect(page.locator('.material-status')).toContainText('已附原文：long（节选）（32,000 字）')
+  await expect(page.locator('.material-status')).toContainText('已附原文：long（节选）（500,000 字）')
 })
 
 test('学习记录列出复习结果和下次时间，可以停止一个主题并回到原对话', async ({ page, phone, user }) => {

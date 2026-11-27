@@ -2,7 +2,7 @@ import { memo } from 'react'
 import type { ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
-import type { ConversationCitation, ConversationSource, ConversationTurn } from '../../../src/contracts/conversation'
+import type { ConversationCitation, ConversationTurn, MaterialSourceView } from '../../../src/contracts/conversation'
 import type { PersonalMemory } from '../../../src/contracts/personal-memory'
 import { Diagram } from './Diagram'
 import { EventLog } from './EventLog'
@@ -29,9 +29,11 @@ const ReplyMarkdown = memo(function ReplyMarkdown({ text, streaming }: { text: s
   </div>
 })
 
-function SourceQuotes({ sources }: { sources: ConversationSource[] }) {
+// A turn shows the opening of each source it read; a long source says how much of it is shown.
+function SourceQuotes({ sources }: { sources: MaterialSourceView[] }) {
   return <>{sources.map(source => <figure className="source-quote" key={source.id}>
-    <figcaption>{source.label}</figcaption><blockquote>{source.text}</blockquote>
+    <figcaption>{source.label}{source.truncated && <span>（共 {source.length.toLocaleString('zh-CN')} 字，这里只显示开头）</span>}</figcaption>
+    <blockquote>{source.preview}{source.truncated && '…'}</blockquote>
   </figure>)}</>
 }
 

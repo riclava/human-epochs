@@ -10,12 +10,13 @@ import type { TurnContext } from "../../runtime/run-turn.js";
 import { inTransaction } from "../../storage/transaction.js";
 import { recallPersonalMemories } from "../personal-memories.js";
 import { readSummary, type ConversationSummary } from "./summaries.js";
+import { loadMaterialSources, type StoredMaterialContext } from "./materials.js";
 import { readHistory, type HistoryTurn } from "./history.js";
 import type { TurnMemory } from "./turns.js";
 
 export function loadContext(
   pool: Pool, userId: string, requestId: string, text: string,
-  materialContext: ConversationMaterialContext | undefined, settings: AgentSettings, online: boolean,
+  materialContext: StoredMaterialContext | undefined, settings: AgentSettings, online: boolean,
   reviewInvitationId?: string,
 ) {
   return inTransaction(pool, async db => {
@@ -44,7 +45,7 @@ export function loadContext(
     const context: TurnContext = materialContext
       ? {
           kind: "material",
-          prompt: { question: text, history, sources: materialContext.sources, ...(reference ? { memory: reference } : {}),
+          prompt: { question: text, history, sources: await loadMaterialSources(db, userId, materialContext), ...(reference ? { memory: reference } : {}),
             ...(offer ? { offerReview: true } : {}) },
           publication,
         }

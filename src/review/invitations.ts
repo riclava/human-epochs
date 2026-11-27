@@ -9,7 +9,7 @@ interface StoredReviewInvitation {
   proposal: ReviewProposal;
   questionRequestId: string | null;
   discussionVersion: string | null;
-  sources: ConversationSource[];
+  sources: SavedSource[];
   conversationTitle: string | null;
 }
 
@@ -25,22 +25,26 @@ const reviewRows = `
     AND NOT origin.reply_blocks @> '[{"kind":"unavailable"}]'
     AND NOT evidence.reply_blocks @> '[{"kind":"unavailable"}]'`;
 
-function sameSource(a: ConversationSource, b: ConversationSource) {
-  return a.id === b.id && a.label === b.label && a.text === b.text;
-}
+// A discussion's saved source. Course sources keep their text; a source the user attached keeps only a reference.
+export type SavedSource = { id: string; label: string; text?: string };
 
 // A course source must still match the published course, so a course update retires reviews of old wording.
-// A source the user brought (an "excerpt:" ID) is checked against the discussion's own snapshot only; a course source
-// that is no longer published is not valid.
-export function reviewSourceValid(discussionVersion: string | null, source: ConversationSource) {
+// A source the user brought (an "excerpt:" ID) lives in the material store and is checked by its ID; a course
+// source that is no longer published is not valid.
+export function reviewSourceValid(discussionVersion: string | null, source: SavedSource) {
   const discussion = publishedDiscussions.find(item => item.discussionVersion === discussionVersion);
   const published = discussion && [...discussion.sources, ...discussion.supplements].find(item => item.id === source.id);
-  return published ? sameSource(published, source) : source.id.startsWith("excerpt:");
+  if (published) return source.text === undefined || (published.label === source.label && published.text === source.text);
+  return source.id.startsWith("excerpt:");
 }
 
-// The review's evidence must be one of the sources its discussion read, verbatim, and still be valid.
-export function reviewSourceAvailable(discussionVersion: string | null, sources: ConversationSource[] | undefined, source: ConversationSource) {
-  return !!sources?.some(candidate => sameSource(candidate, source)) && reviewSourceValid(discussionVersion, source);
+// The review's evidence must come from one of the sources its discussion read. Course evidence is the whole course
+// source and must equal the saved one; the user's own evidence is the passage around the quote.
+export function reviewSourceAvailable(discussionVersion: string | null, sources: SavedSource[] | undefined, evidence: ConversationSource) {
+  const saved = sources?.find(candidate => candidate.id === evidence.id);
+  if (!saved || saved.label !== evidence.label) return false;
+  if (saved.text !== undefined && saved.text !== evidence.text) return false;
+  return reviewSourceValid(discussionVersion, evidence.id.startsWith("excerpt:") ? { id: evidence.id, label: evidence.label } : evidence);
 }
 
 function sourceAvailable(review: StoredReviewInvitation) {
@@ -70,7 +74,7 @@ export async function reviewRemindersEnabled(db: PoolClient, userId: string) {
 
 export async function scheduleReviewInvitation(
   db: PoolClient, userId: string, evidenceId: string, originRequestId: string,
-  discussion: { discussionVersion: string | null; sources: ConversationSource[] }, proposal: ReviewProposal, now: Date,
+  discussion: { discussionVersion: string | null; sources: SavedSource[] }, proposal: ReviewProposal, now: Date,
 ) {
   if (!reviewSourceAvailable(discussion.discussionVersion, discussion.sources, proposal.source) || !await reviewRemindersEnabled(db, userId)) return;
   const { rowCount: stopped } = await db.query(

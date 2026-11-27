@@ -13,7 +13,7 @@ import { enqueueExtraction } from "../memory-candidates.js";
 import { isDeletedConversation, touchConversation } from "./conversations.js";
 import { enqueueSummary } from "./summaries.js";
 import { discussionChain } from "./history.js";
-import { resolveMaterialContext, namedMaterial } from "./materials.js";
+import { materialView, namedMaterial, resolveMaterialContext, saveMaterial, type StoredMaterialContext } from "./materials.js";
 
 const maxAttempts = 3;
 const columns = `request_id AS "requestId", message_text AS "messageText",
@@ -26,7 +26,7 @@ const lease = "clock_timestamp() + interval '90 seconds'";
 
 type StoredUserTurn = Omit<UserConversationTurn, "materialContext" | "explanationSource"> & {
   reviewInvitationId: string | null;
-  materialContext: ConversationMaterialContext | null;
+  materialContext: StoredMaterialContext | null;
   explanationSource: UserConversationTurn["explanationSource"] | null;
 };
 type StoredTurn = StoredUserTurn | (Omit<ReviewQuestionTurn, "reviewInvitationId"> & { reviewInvitationId: string | null });
@@ -48,7 +48,7 @@ function publicTurn(row: StoredTurn, reviewAvailable = true): ConversationTurn {
   return {
     requestId, kind, status, messageText,
     replyBlocks: !reviewAvailable && replyBlocks ? unavailableBlocks(replyBlocks) : replyBlocks,
-    ...(materialContext ? { materialContext } : {}),
+    ...(materialContext ? { materialContext: materialView(materialContext) } : {}),
     ...(explanationSource ? { explanationSource } : {}),
   };
 }
@@ -90,7 +90,7 @@ type Receipt =
   | { kind: "conflict"; message: string }
   | { kind: "existing"; turn: ConversationTurn; attempt: number }
   | { kind: "invalid_material" | "invalid_review" | "deleted" }
-  | ({ kind: "claimed"; materialContext?: ConversationMaterialContext; reviewInvitationId?: string } & Claim);
+  | ({ kind: "claimed"; materialContext?: StoredMaterialContext; reviewInvitationId?: string } & Claim);
 
 export function receiveTurn(pool: Pool, userId: string, command: SendConversationCommand): Promise<Receipt> {
   const { conversationId, requestId, messageText, materialSelection, reviewInvitationId } = command;
@@ -130,7 +130,8 @@ export function receiveTurn(pool: Pool, userId: string, command: SendConversatio
     }
 
     const selection = materialSelection ?? (reviewInvitationId ? undefined : namedMaterial(messageText));
-    const materialContext = selection ? await resolveMaterialContext(db, userId, conversationId, requestId, selection) : null;
+    const resolved = selection ? await resolveMaterialContext(db, userId, conversationId, requestId, selection) : null;
+    const materialContext = resolved?.context ?? null;
     if (selection && !materialContext) return { kind: "invalid_material" };
     if (reviewInvitationId && !await canAnswerReview(db, userId, conversationId, reviewInvitationId)) return { kind: "invalid_review" };
     if (open) {
@@ -145,6 +146,7 @@ export function receiveTurn(pool: Pool, userId: string, command: SendConversatio
       VALUES ($1, $7, $2, $3, 'pending', ${lease}, $4, $5, $6)
       RETURNING attempt, lease_until AS deadline
     `, [...params, messageText, selection ?? null, materialContext, reviewInvitationId ?? null, conversationId]);
+    if (resolved?.material) await saveMaterial(db, userId, requestId, resolved.material);
     return { kind: "claimed", ...inserted.rows[0]!, materialContext: materialContext ?? undefined, reviewInvitationId };
   });
 }
