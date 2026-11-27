@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import type { ChangeEvent, FormEvent } from 'react'
 import { materialLabelLimit, materialSourceLimit } from '../../../src/contracts/conversation'
 import { DocumentReadError, pageRangeLabel, pagesText, pagesThatFit, readDocument } from './document-text'
+import type { MaterialItem, MaterialLibrary } from '../../../src/contracts/material'
+import { request } from './api'
 import type { Attachment } from './material-draft'
 import { defaultLabel } from './MaterialComposer'
 
@@ -21,8 +23,10 @@ const readErrors: Record<DocumentReadError['reason'], string> = {
 type Pdf = { name: string; pages: string[]; from: number; to: number }
 
 // Pasted text or a chosen file becomes one source. Files are read in the browser; only the text is attached.
-export function AttachMaterialDialog({ budget, disabled, onAttach }: {
+export function AttachMaterialDialog({ budget, inDiscussion, disabled, onAttach }: {
   budget: { text: number; sources: number }
+  // Source IDs the continued discussion already reads.
+  inDiscussion: string[]
   disabled: boolean
   onAttach: (attachment: Attachment) => void
 }) {
@@ -39,6 +43,7 @@ export function AttachMaterialDialog({ budget, disabled, onAttach }: {
   const [notice, setNotice] = useState('')
   const [progress, setProgress] = useState<string | null>(null)
   const [pdf, setPdf] = useState<Pdf | null>(null)
+  const [library, setLibrary] = useState<MaterialItem[] | null>(null)
   const full = budget.sources <= 0
   const room = Math.max(0, budget.text)
 
@@ -48,6 +53,9 @@ export function AttachMaterialDialog({ budget, disabled, onAttach }: {
     setNotice('')
     setPdf(null)
     setError(full ? `这段讨论已有 ${materialSourceLimit - budget.sources} 份原文，不能再附加。可以结束讨论后重新开始。` : '')
+    setLibrary(null)
+    void request('/materials').then(response => response.json() as Promise<MaterialLibrary>)
+      .then(list => setLibrary(list.materials), () => setLibrary([]))
     dialog.current?.showModal()
     // Pasting is the common case, so the text field gets focus rather than the file picker that comes first.
     textField.current?.focus()
@@ -109,6 +117,13 @@ export function AttachMaterialDialog({ budget, disabled, onAttach }: {
     textField.current?.focus()
   }
 
+  // A library material is attached by reference; the dialog closes first so focus can move to the message field.
+  function choose(item: MaterialItem) {
+    attached.current = true
+    dialog.current?.close()
+    onAttach({ materialId: item.id, label: item.label, length: item.length })
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const body = text.trim()
@@ -148,6 +163,20 @@ export function AttachMaterialDialog({ budget, disabled, onAttach }: {
           <label>到第 <input type="number" min={pdf.from} max={pdf.pages.length} value={pdf.to}
             onChange={event => choosePages(pdf, pdf.from, Math.min(Math.max(pdf.from, Number(event.target.value) || pdf.from), pdf.pages.length))} /> 页</label>
         </fieldset>}
+        <section className="material-library" aria-labelledby={id + '-library'}>
+          <h3 id={id + '-library'}>从我的材料选择</h3>
+          {library === null ? <p className="material-count">正在读取我的材料…</p>
+            : !library.length ? <p className="material-count">还没有保存过材料。附加过的原文会出现在这里，可以在其他对话里直接选用。</p>
+            : <ul>{library.map(item => {
+              const reading = inDiscussion.includes('material:' + item.id)
+              return <li key={item.id}>
+                <span>{item.label}<small>（{count(item.length)} 字）</small></span>
+                <button type="button" disabled={full || reading || item.length > room || !!progress}
+                  aria-label={reading ? `${item.label} 已在这段讨论中` : `选用 ${item.label}`} onClick={() => choose(item)}>
+                  {reading ? '已在讨论中' : item.length > room ? '超出剩余字数' : '选用'}</button>
+              </li>
+            })}</ul>}
+        </section>
         <label htmlFor={id + '-text'}>原文</label>
         <textarea ref={textField} id={id + '-text'} rows={8} value={text} disabled={full}
           aria-describedby={id + '-count' + (error ? ' ' + id + '-error' : '')} aria-invalid={!!error || tooLong || undefined}

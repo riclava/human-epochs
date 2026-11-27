@@ -13,7 +13,7 @@ import { enqueueExtraction } from "../memory-candidates.js";
 import { isDeletedConversation, touchConversation } from "./conversations.js";
 import { enqueueSummary } from "./summaries.js";
 import { discussionChain } from "./history.js";
-import { materialView, namedMaterial, resolveMaterialContext, saveMaterial, type StoredMaterialContext } from "./materials.js";
+import { materialView, namedMaterial, resolveMaterialContext, type StoredMaterialContext } from "./materials.js";
 
 const maxAttempts = 3;
 const columns = `request_id AS "requestId", message_text AS "messageText",
@@ -130,8 +130,7 @@ export function receiveTurn(pool: Pool, userId: string, command: SendConversatio
     }
 
     const selection = materialSelection ?? (reviewInvitationId ? undefined : namedMaterial(messageText));
-    const resolved = selection ? await resolveMaterialContext(db, userId, conversationId, requestId, selection) : null;
-    const materialContext = resolved?.context ?? null;
+    const materialContext = selection ? await resolveMaterialContext(db, userId, conversationId, requestId, selection) : null;
     if (selection && !materialContext) return { kind: "invalid_material" };
     if (reviewInvitationId && !await canAnswerReview(db, userId, conversationId, reviewInvitationId)) return { kind: "invalid_review" };
     if (open) {
@@ -146,7 +145,6 @@ export function receiveTurn(pool: Pool, userId: string, command: SendConversatio
       VALUES ($1, $7, $2, $3, 'pending', ${lease}, $4, $5, $6)
       RETURNING attempt, lease_until AS deadline
     `, [...params, messageText, selection ?? null, materialContext, reviewInvitationId ?? null, conversationId]);
-    if (resolved?.material) await saveMaterial(db, userId, requestId, resolved.material);
     return { kind: "claimed", ...inserted.rows[0]!, materialContext: materialContext ?? undefined, reviewInvitationId };
   });
 }

@@ -26,25 +26,25 @@ const reviewRows = `
     AND NOT evidence.reply_blocks @> '[{"kind":"unavailable"}]'`;
 
 // A discussion's saved source. Course sources keep their text; a source the user attached keeps only a reference.
-export type SavedSource = { id: string; label: string; text?: string };
+export type SavedSource = { id: string; label: string; text?: string; deleted?: true };
 
 // A course source must still match the published course, so a course update retires reviews of old wording.
-// A source the user brought (an "excerpt:" ID) lives in the material store and is checked by its ID; a course
+// A material the user brought (a "material:" ID) lives in the material store and is checked by its ID; a course
 // source that is no longer published is not valid.
 export function reviewSourceValid(discussionVersion: string | null, source: SavedSource) {
   const discussion = publishedDiscussions.find(item => item.discussionVersion === discussionVersion);
   const published = discussion && [...discussion.sources, ...discussion.supplements].find(item => item.id === source.id);
   if (published) return source.text === undefined || (published.label === source.label && published.text === source.text);
-  return source.id.startsWith("excerpt:");
+  return source.id.startsWith("material:");
 }
 
 // The review's evidence must come from one of the sources its discussion read. Course evidence is the whole course
 // source and must equal the saved one; the user's own evidence is the passage around the quote.
 export function reviewSourceAvailable(discussionVersion: string | null, sources: SavedSource[] | undefined, evidence: ConversationSource) {
   const saved = sources?.find(candidate => candidate.id === evidence.id);
-  if (!saved || saved.label !== evidence.label) return false;
+  if (!saved || saved.deleted || saved.label !== evidence.label) return false;
   if (saved.text !== undefined && saved.text !== evidence.text) return false;
-  return reviewSourceValid(discussionVersion, evidence.id.startsWith("excerpt:") ? { id: evidence.id, label: evidence.label } : evidence);
+  return reviewSourceValid(discussionVersion, evidence.id.startsWith("material:") ? { id: evidence.id, label: evidence.label } : evidence);
 }
 
 function sourceAvailable(review: StoredReviewInvitation) {

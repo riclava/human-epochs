@@ -31,7 +31,9 @@ const ReplyMarkdown = memo(function ReplyMarkdown({ text, streaming }: { text: s
 
 // A turn shows the opening of each source it read; a long source says how much of it is shown.
 function SourceQuotes({ sources }: { sources: MaterialSourceView[] }) {
-  return <>{sources.map(source => <figure className="source-quote" key={source.id}>
+  return <>{sources.map(source => source.deleted
+    ? <p className="source-quote source-deleted" key={source.id}>这份材料已删除。</p>
+    : <figure className="source-quote" key={source.id}>
     <figcaption>{source.label}{source.truncated && <span>（共 {source.length.toLocaleString('zh-CN')} 字，这里只显示开头）</span>}</figcaption>
     <blockquote>{source.preview}{source.truncated && '…'}</blockquote>
   </figure>)}</>

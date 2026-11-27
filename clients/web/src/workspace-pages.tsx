@@ -4,6 +4,7 @@ import type { User } from '../../../src/contracts/session'
 import { AgentSettings } from './AgentSettings'
 import { ConversationView } from './ConversationView'
 import { LearningRecordView } from './LearningRecordView'
+import { MaterialLibraryView } from './MaterialLibraryView'
 import { conversationRoute } from './routes'
 
 export { conversationHref, conversationRoute } from './routes'
@@ -51,7 +52,17 @@ const learning: WorkspacePage = {
   View: LearningRecordView,
 }
 
-const pages: readonly WorkspacePage[] = [conversation, learning, {
+const materials: WorkspacePage = {
+  href: '#/materials',
+  title: '我的材料',
+  paneClassName: 'settings-pane',
+  icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="M7 3h7l4 4v14H7z" /><path d="M14 3v4h4M10 12h5M10 16h5" />
+  </svg>,
+  View: MaterialLibraryView,
+}
+
+const pages: readonly WorkspacePage[] = [conversation, learning, materials, {
   href: '#/settings',
   title: '运行设置',
   paneClassName: 'settings-pane',

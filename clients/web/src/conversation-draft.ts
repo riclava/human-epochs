@@ -6,7 +6,10 @@ const DraftSchema = z.strictObject({
   messageText: z.string(), requestId: z.uuid().optional(), reviewInvitationId: z.uuid().optional(),
   materialSelection: conversationMaterialSelectionSchema.optional(),
   // Not sent yet: a source to attach to the next message, and whether that message leaves the current discussion.
-  attachment: z.strictObject({ label: z.string(), text: z.string() }).optional(),
+  attachment: z.union([
+    z.strictObject({ label: z.string(), text: z.string() }),
+    z.strictObject({ materialId: z.uuid(), label: z.string(), length: z.int() }),
+  ]).optional(),
   leaveDiscussion: z.boolean().optional(),
 })
 type Draft = z.infer<typeof DraftSchema>

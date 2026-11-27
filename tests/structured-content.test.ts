@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { test } from 'node:test'
 import { createApp } from '../src/app/create-app.js'
 import type { ConversationSnapshot, UserConversationTurn } from '../src/contracts/conversation.js'
+import type { MaterialLibrary } from '../src/contracts/material.js'
 import type { MaterialPrompt } from '../src/runtime/model.js'
 import { createTestUser, removeTestUser } from './fixtures/activity.js'
 import { conversationCitations, readConversationTurn } from './fixtures/conversation-stream.js'
@@ -58,7 +59,7 @@ test('event logs are verified, published once and read back identically on both 
   assert.equal(explanation?.kind, 'text')
   if (log?.kind !== 'event_log') return
   assert.deepEqual(log.events, events)
-  assert.deepEqual(log.citations, [{ sourceId: 'excerpt:' + rootId, label: excerpt.label, quote: '馆员查到书已借出，请小林登记预约。' }])
+  assert.deepEqual(log.citations, [{ sourceId: 'material:' + rootId, label: excerpt.label, quote: '馆员查到书已借出，请小林登记预约。' }])
 
   const retried = await ask(phone, rootId, '借书时发生了什么？', { excerpt })
   assert.deepEqual(retried.replyBlocks, first.replyBlocks, 'a completed request replays the same block IDs and order')
@@ -217,7 +218,7 @@ test('a pasted source may be long, later sources join the discussion, and the di
   const root = await readConversationTurn((await ask(rootId, { excerpt: long })).payload, 'text/event-stream')
   assert.equal(root.status, 'complete')
   assert.deepEqual({ ...root.materialContext?.sources[0], preview: undefined },
-    { id: 'excerpt:' + rootId, label: '长笔记', length: 18000, preview: undefined, truncated: true }, 'a turn shows the length and only the opening')
+    { id: 'material:' + rootId, label: '长笔记', length: 18000, preview: undefined, truncated: true, deleted: false }, 'a turn shows the length and only the opening')
   assert.equal(root.materialContext?.sources[0]?.preview, long.text.slice(0, 600))
 
   const more = await readConversationTurn((await ask(randomUUID(), { parentRequestId: rootId, excerpt: { label: '补充', text: '另一段。' } })).payload, 'text/event-stream')
@@ -228,7 +229,7 @@ test('a pasted source may be long, later sources join the discussion, and the di
   assert.equal(overflow.statusCode, 400, 'the discussion stays within its total character limit')
 })
 
-test('a long document is stored once, read by search and parts, and leaves with its conversation', { timeout: 15_000 }, async t => {
+test('a long document is stored once, read by search and parts, and stays in the library after its conversation', { timeout: 15_000 }, async t => {
   const user = await createTestUser(pool)
   t.after(() => removeTestUser(pool, user.id))
   const conclusion = '关键结论：光反应发生在类囊体膜上。'
@@ -282,5 +283,7 @@ test('a long document is stored once, read by search and parts, and leaves with 
   const removed = await server.inject({ method: 'POST', url: `/api/conversations/${conversation}/commands`, headers: { cookie },
     payload: { operation: 'delete', commandId: randomUUID() } })
   assert.equal(removed.statusCode, 200, removed.payload)
-  assert.equal((await pool.query(`SELECT 1 FROM materials WHERE user_id = $1`, [user.id])).rowCount, 0, 'deleting the conversation deletes the document')
+  const library = (await server.inject({ url: '/api/materials', headers: { cookie } })).json<MaterialLibrary>()
+  assert.deepEqual(library.materials.map(item => [item.label, item.length, item.conversations]), [[book.label, book.text.length, 0]],
+    'deleting the conversation keeps the material in the library')
 })

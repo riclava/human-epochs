@@ -133,16 +133,22 @@ CREATE INDEX conversation_by_position ON conversation_turns (user_id, conversati
 CREATE INDEX conversation_discussion_history ON conversation_turns (user_id, (material_context->>'discussionId'), position)
   WHERE material_context IS NOT NULL;
 
--- A source the user attached, stored once. Turns that read it keep only its ID, name, length and opening.
+-- A source the user attached, stored once and owned by the user. Turns that read it keep only its ID, name, length
+-- and opening. Deleting a material clears its text and keeps the row so replays can be recognized.
 CREATE TABLE materials (
-  user_id uuid NOT NULL,
-  source_id text NOT NULL CHECK (source_id LIKE 'excerpt:%'),
-  request_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id uuid NOT NULL,
   label text NOT NULL,
-  text text NOT NULL CHECK (length(text) BETWEEN 1 AND 500000),
-  PRIMARY KEY (user_id, source_id),
-  FOREIGN KEY (user_id, request_id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE
+  text text CHECK (length(text) BETWEEN 1 AND 500000),
+  length integer NOT NULL CHECK (length BETWEEN 0 AND 500000),
+  fingerprint text CHECK (length(fingerprint) = 64),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  deleted_at timestamptz,
+  PRIMARY KEY (user_id, id),
+  CHECK ((deleted_at IS NULL) = (text IS NOT NULL) AND (text IS NULL) = (fingerprint IS NULL))
 );
+
+CREATE UNIQUE INDEX materials_by_content ON materials (user_id, fingerprint) WHERE deleted_at IS NULL;
 
 CREATE TABLE review_invitations (
   user_id uuid NOT NULL,

@@ -11,6 +11,7 @@ import { processNextSummary } from "./conversation/summaries.js";
 import { processNextMemoryExtraction } from "./memory-extraction.js";
 import { createPersonalMemoryService } from "./personal-memories.js";
 import { createLearningService } from "./learning-record.js";
+import { createMaterialLibrary } from "./material-library.js";
 
 export function createApp(
   pool: Pool, model: ModelClient | null, settingsAdminEmails?: string, modelOptions?: ModelOptions,
@@ -25,6 +26,7 @@ export function createApp(
     activities: createActivityService(pool),
     personalMemories: createPersonalMemoryService(pool),
     learning: createLearningService(pool),
+    materials: createMaterialLibrary(pool),
     settings,
   }, logger);
   if (backgroundJobs) attachBackgroundWorker(app, [

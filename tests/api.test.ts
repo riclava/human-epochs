@@ -242,7 +242,7 @@ test('only configured administrators can save versioned runtime settings and an 
   const user = await login(account.email)
   const sourceText = '设备在 09:05 完成校准。'
   const requestId = randomUUID()
-  const sourceId = 'excerpt:' + requestId
+  const sourceId = 'material:' + requestId
   let notifyModel!: () => void
   let finishToolCall!: () => void
   const modelStarted = new Promise<void>(resolve => { notifyModel = resolve })
@@ -878,7 +878,7 @@ test('published material supports cited follow-ups and one shared activity acros
   const first = await terminalTurn(await send(desktop, randomUUID(), source.question, { discussionVersion: source.discussionVersion }))
   assert.equal(first.status, 'complete')
   assert.deepEqual(first.materialContext?.sources, source.sources.map(({ id, label, text }) =>
-    ({ id, label, length: text.length, preview: text, truncated: false })))
+    ({ id, label, length: text.length, preview: text, truncated: false, deleted: false })))
   assert.ok(conversationCitations(first.replyBlocks).length)
   const extra = source.supplements[0]
   assert.ok(!JSON.stringify(first).includes(extra.text))
@@ -968,7 +968,7 @@ test('a long discussion reads selected evidence across model calls and publishes
   })
   assert.equal(root.statusCode, 200)
 
-  const source = { id: 'excerpt:' + requestId, ...calibration }
+  const source = { id: 'material:' + requestId, ...calibration }
   const call = {
     id: 'read-calibration', type: 'function',
     function: { name: 'read_source', arguments: JSON.stringify({ sourceId: source.id }) },
@@ -987,7 +987,7 @@ test('a long discussion reads selected evidence across model calls and publishes
       calls++
       if (calls === 1) {
         assert.deepEqual(JSON.parse(body.messages[1].content).sources, [
-          { id: 'excerpt:' + rootRequestId, label: background.label, length: background.text.length, parts: 1 },
+          { id: 'material:' + rootRequestId, label: background.label, length: background.text.length, parts: 1 },
           { id: source.id, label: calibration.label, length: calibration.text.length, parts: 1 },
         ])
         assert.ok(!JSON.stringify(body).includes(quote))
@@ -1171,7 +1171,7 @@ test('a summary can reclaim an expired job, stays in its branch and discards obs
   const inputs: { history: unknown; memory?: string }[] = []
   const excerpt = { label: '记录', text: '馆藏在周一登记。' }
   const root = randomUUID()
-  const sourceId = 'excerpt:' + root
+  const sourceId = 'material:' + root
   const server = createApp(pool, async ({ messages }) => {
     inputs.push(JSON.parse(messages[0].content!))
     return { kind: 'text', text: JSON.stringify({

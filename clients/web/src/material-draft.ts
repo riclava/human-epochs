@@ -1,16 +1,18 @@
 import { materialSourceLimit, materialTextLimit } from '../../../src/contracts/conversation'
 import type { ConversationMaterialSelection, ConversationTurn } from '../../../src/contracts/conversation'
 
-export interface Attachment {
-  label: string
-  text: string
-}
+// A source for the next message: text the user just pasted or read from a file, or a material already in the library.
+export type Attachment = { label: string; text: string } | { materialId: string; label: string; length: number }
+
+export const attachmentLength = (attachment: Attachment) => 'text' in attachment ? attachment.text.length : attachment.length
 
 export interface ActiveDiscussion {
   requestId: string
   labels: string[]
   sourceCount: number
   textLength: number
+  // Source IDs already in the discussion, so the library can mark materials that are already being read.
+  sourceIds: string[]
 }
 
 // A new message continues the discussion of the latest finished turn when that turn discussed material. It is
@@ -20,12 +22,15 @@ export function activeDiscussion(turns: readonly ConversationTurn[]): ActiveDisc
     const turn = turns[index]!
     if (turn.status !== 'complete') continue
     if (turn.kind !== 'user' || !turn.materialContext) return null
-    const { sources } = turn.materialContext
+    // Deleted materials cannot be read again; a discussion left with none cannot be continued.
+    const sources = turn.materialContext.sources.filter(source => !source.deleted)
+    if (!sources.length) return null
     return {
       requestId: turn.requestId,
       labels: sources.map(source => source.label),
       sourceCount: sources.length,
       textLength: sources.reduce((size, source) => size + source.length, 0),
+      sourceIds: sources.map(source => source.id),
     }
   }
   return null
@@ -44,7 +49,8 @@ export function materialSelectionFor(
 ): ConversationMaterialSelection | undefined {
   const parentRequestId = discussion && !leaveDiscussion ? discussion.requestId : undefined
   if (!parentRequestId && !attachment) return undefined
-  return { ...(parentRequestId ? { parentRequestId } : {}), ...(attachment ? { excerpt: attachment } : {}) }
+  const source = !attachment ? {} : 'text' in attachment ? { excerpt: attachment } : { materialIds: [attachment.materialId] }
+  return { ...(parentRequestId ? { parentRequestId } : {}), ...source }
 }
 
 export function describeLabels(labels: readonly string[]) {

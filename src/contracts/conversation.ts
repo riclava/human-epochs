@@ -32,6 +32,8 @@ export const conversationMaterialSelectionSchema = z.strictObject({
   parentRequestId: requestId.optional(),
   sourceIds: z.array(clean(160)).max(16).optional(),
   excerpt: z.strictObject({ label: clean(materialLabelLimit), text: clean(materialTextLimit) }).optional(),
+  // Materials already in the user's library, chosen instead of uploading the text again.
+  materialIds: z.array(requestId).max(materialSourceLimit).optional(),
 })
 export type ConversationMaterialSelection = z.infer<typeof conversationMaterialSelectionSchema>
 
@@ -51,6 +53,8 @@ export interface MaterialSourceView {
   length: number
   preview: string
   truncated: boolean
+  // The user deleted this material; its name, opening and text are gone.
+  deleted: boolean
 }
 
 export interface ConversationMaterialContext {

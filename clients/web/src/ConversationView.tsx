@@ -200,6 +200,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
             <div className="conversation-toolbar">
               <span id="conversation-send-help">{!snapshot && !loadError ? '正在读取对话…' : busy ? '这条消息结束后可以继续发送。' : 'Enter 发送 · Shift + Enter 换行'}</span>
               <AttachMaterialDialog budget={materialBudget(draft.leaveDiscussion ? null : discussion)} disabled={busy || !!activeReviewInvitationId}
+                inDiscussion={draft.leaveDiscussion ? [] : discussion?.sourceIds ?? []}
                 onAttach={attachment => { conversation.saveDraft({ ...draft, requestId: undefined, attachment }); field.current?.focus() }} />
               {controls.kind === 'stop' ? <button type="button" disabled={controls.disabled} onClick={() => {
                 field.current?.focus()

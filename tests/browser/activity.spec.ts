@@ -901,7 +901,7 @@ test('附加 PDF 时选择页码范围，Word 读取正文，读不出文字时�
 })
 
 test('学习记录列出复习结果和下次时间，可以停止一个主题并回到原对话', async ({ page, phone, user }) => {
-  const source = { id: 'excerpt:' + randomUUID(), label: '实验室安全规程', text: '离心结束后等待转子完全停止再开盖取出样品。' }
+  const source = { id: 'material:' + randomUUID(), label: '实验室安全规程', text: '离心结束后等待转子完全停止再开盖取出样品。' }
   const conversationId = await publishReply(user.pool, user.id, '离心机什么时候能开盖？', [{ id: randomUUID(), kind: 'text', text: '要等转子停稳。' }])
   const { rows: [origin] } = await user.pool.query('SELECT request_id FROM conversation_turns WHERE conversation_id = $1', [conversationId])
   await user.pool.query(`UPDATE conversation_turns SET material_selection = '{}', material_context = $2 WHERE request_id = $1`,
@@ -935,4 +935,44 @@ test('学习记录列出复习结果和下次时间，可以停止一个主题�
   await phone.goto('/#/learning')
   await expect(phone.getByRole('article', { name: '离心机开盖时机' })).toContainText('已停止复习这个主题。')
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('附加过的原文可以在新对话里从我的材料选用，删除后对话里显示已删除', async ({ page, user }) => {
+  await signIn(page, user.email)
+  const list = page.getByRole('region', { name: '最近的对话' })
+  await page.getByRole('button', { name: '附加原文' }).click()
+  let dialog = page.getByRole('dialog', { name: '附加原文' })
+  await expect(dialog.getByText('还没有保存过材料')).toBeVisible()
+  await dialog.getByRole('textbox', { name: '原文' }).fill('九点测得树荫下的气温为二十度。')
+  await dialog.getByRole('textbox', { name: '名称（可选）' }).fill('气象笔记')
+  await dialog.getByRole('button', { name: '附加', exact: true }).click()
+  const first = await sendText(page, '九点的气温是多少？')
+
+  await list.getByRole('button', { name: '新对话' }).click()
+  await expect.poll(() => conversationIdOf(page)).not.toBe('')
+  await page.getByRole('button', { name: '附加原文' }).click()
+  dialog = page.getByRole('dialog', { name: '附加原文' })
+  await dialog.getByRole('button', { name: '选用 气象笔记' }).click()
+  await expect(dialog).toBeHidden()
+  await expect(composer(page)).toBeFocused()
+  await expect(page.locator('.material-status')).toContainText('已选材料：气象笔记（15 字）')
+  const second = await sendText(page, '记录里写了什么？')
+  expect(second.materialContext?.sources.map(source => source.id)).toEqual(first.materialContext?.sources.map(source => source.id))
+
+  await page.getByRole('link', { name: '我的材料' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: '我的材料' })).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: '气象笔记' })).toContainText('用于 2 个对话')
+  await page.getByRole('button', { name: '删除 气象笔记' }).click()
+  const confirm = page.getByRole('dialog', { name: '删除这份材料？' })
+  await expect(confirm.getByRole('button', { name: '取消' })).toBeFocused()
+  await confirm.getByRole('button', { name: '删除材料' }).click()
+  await expect(confirm).toBeHidden()
+  await expect(page.getByText('还没有保存过材料')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '我的材料' })).toBeFocused()
+
+  await list.getByRole('link', { name: '记录里写了什么？' }).click()
+  await log(page).getByText('查看当轮材料').click()
+  await expect(log(page)).toContainText('这份材料已删除。')
+  await expect(log(page)).toContainText('这部分回复已失效。')
+  await expect(page.locator('.material-status')).toHaveCount(0)
 })

@@ -1,4 +1,4 @@
-import { describeLabels, type ActiveDiscussion, type Attachment } from './material-draft'
+import { attachmentLength, describeLabels, type ActiveDiscussion, type Attachment } from './material-draft'
 
 const count = (value: number) => value.toLocaleString('zh-CN')
 
@@ -27,7 +27,7 @@ export function MaterialStatus({ attachment, discussion, leaveDiscussion, disabl
         <button type="button" disabled={disabled} onClick={onContinue}>继续讨论</button></p>
       : <p><span>接着讨论：{describeLabels(discussion.labels)}</span>
         <button type="button" disabled={disabled} onClick={onLeave}>结束讨论</button></p>)}
-    {attachment && <p><span>已附原文：{attachment.label}（{count(attachment.text.length)} 字）</span>
+    {attachment && <p><span>{'materialId' in attachment ? '已选材料' : '已附原文'}：{attachment.label}（{count(attachmentLength(attachment))} 字）</span>
       <button type="button" disabled={disabled} onClick={onRemove} aria-label={`移除原文 ${attachment.label}`}>移除</button></p>}
   </div>
 }
