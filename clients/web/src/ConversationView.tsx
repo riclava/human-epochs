@@ -7,7 +7,8 @@ import { PersonalMemorySection } from './PersonalMemorySection'
 import { ReviewInvitationCard } from './ReviewInvitationCard'
 import { useConversationSession, type UnsentMessage } from './useConversationSession'
 import { activeDiscussion, materialBudget, materialSelectionFor } from './material-draft'
-import { AttachMaterialDialog, MaterialStatus } from './MaterialComposer'
+import { AttachMaterialDialog } from './AttachMaterialDialog'
+import { MaterialStatus } from './MaterialComposer'
 import type { WorkspacePageProps } from './workspace-pages'
 
 function groupBySource<T extends { sourceRequestId: string | null }>(records: readonly T[]) {

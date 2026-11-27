@@ -12,6 +12,7 @@ import { createPool } from '../../src/storage/database'
 import { inTransaction } from '../../src/storage/transaction'
 import { createActivity } from '../../src/activities/activities'
 import { createTestUser, removeTestUser } from '../fixtures/activity'
+import { makeDocx, makePdf } from '../fixtures/documents'
 import { conversationCitations, modelChunk, readConversationTurn, testModelBaseUrl } from '../fixtures/conversation-stream'
 
 const test = base.extend<{ user: { id: string; email: string; pool: Pool }; phone: Page }>({
@@ -826,7 +827,7 @@ test('附加原文后提问，接着讨论，结束讨论后回到普通对话',
   await expect(dialog.getByRole('textbox', { name: '原文' })).toBeFocused()
   await dialog.getByRole('button', { name: '附加' }).click()
   await expect(dialog.getByRole('alert')).toHaveText('请粘贴原文，或从文件读取。')
-  await dialog.getByLabel('或从文件读取（.txt、.md）').setInputFiles({
+  await dialog.getByLabel('从文件读取（.txt、.md、.pdf、.docx）').setInputFiles({
     name: '气象笔记.md', mimeType: 'text/markdown', buffer: Buffer.from('九点测得树荫下的气温为二十度。\n十点升到二十二度。'),
   })
   await expect(dialog.getByRole('textbox', { name: '原文' })).toHaveValue('九点测得树荫下的气温为二十度。\n十点升到二十二度。')
@@ -852,4 +853,47 @@ test('附加原文后提问，接着讨论，结束讨论后回到普通对话',
   expect(plain.materialContext).toBeUndefined()
   await expect(status).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('附加 PDF 时选择页码范围，Word 读取正文，读不出文字时给出原因', async ({ page, user }) => {
+  await signIn(page, user.email)
+  await page.getByRole('button', { name: '附加原文' }).click()
+  const dialog = page.getByRole('dialog', { name: '附加原文' })
+  const file = dialog.getByLabel('从文件读取（.txt、.md、.pdf、.docx）')
+  const text = dialog.getByRole('textbox', { name: '原文' })
+  const name = dialog.getByRole('textbox', { name: '名称（可选）' })
+
+  // Seven pages of about 6,100 characters each: the first five fit in one discussion.
+  const pageText = (n: number) => Array.from({ length: 70 }, (_, line) => `Page ${n} line ${line} ` + 'lorem ipsum '.repeat(6)).join('\n')
+  await file.setInputFiles({ name: 'lecture.pdf', mimeType: 'application/pdf', buffer: makePdf([1, 2, 3, 4, 5, 6, 7].map(pageText)) })
+  await expect(dialog.getByRole('status')).toContainText('整份文件 7 页', { timeout: 15_000 })
+  await expect(dialog.getByRole('status')).toContainText('已选第 1–5 页')
+  await expect(text).toHaveValue(/^【第 1 页】\nPage 1 line 0 /u)
+  await expect(text).toHaveValue(/【第 5 页】\nPage 5 line 0 /u)
+  await expect(text).not.toHaveValue(/【第 6 页】/u)
+  await expect(name).toHaveValue('lecture（第 1–5 页）')
+  const range = dialog.getByRole('group', { name: '页码范围（共 7 页）' })
+  await range.getByRole('spinbutton', { name: '到第 页' }).fill('7')
+  await range.getByRole('spinbutton', { name: '从第 页' }).fill('6')
+  await expect(name).toHaveValue('lecture（第 6–7 页）')
+  await expect(text).toHaveValue(/^【第 6 页】\nPage 6 line 0 /u)
+
+  await file.setInputFiles({ name: 'notes.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: makeDocx(['光反应在类囊体膜上进行。', '暗反应在叶绿体基质中进行。']) })
+  await expect(text).toHaveValue('光反应在类囊体膜上进行。\n\n暗反应在叶绿体基质中进行。')
+  await expect(name).toHaveValue('notes')
+  await expect(dialog.getByRole('group', { name: /页码范围/u })).toHaveCount(0)
+
+  await file.setInputFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: makePdf(['']) })
+  await expect(dialog.getByRole('alert')).toContainText('没有可读取的文字，可能是扫描件')
+  await file.setInputFiles({ name: 'old.doc', mimeType: 'application/msword', buffer: Buffer.from('not a docx') })
+  await expect(dialog.getByRole('alert')).toContainText('另存为 .docx')
+
+  await file.setInputFiles({ name: 'long.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: makeDocx(['长'.repeat(33_000)]) })
+  await expect(dialog.getByRole('status')).toContainText('超过这段讨论还能放的 32,000 字')
+  await dialog.getByRole('button', { name: '只保留前 32,000 字' }).click()
+  await expect(name).toHaveValue('long（节选）')
+  await dialog.getByRole('button', { name: '附加', exact: true }).click()
+  await expect(page.locator('.material-status')).toContainText('已附原文：long（节选）（32,000 字）')
 })
