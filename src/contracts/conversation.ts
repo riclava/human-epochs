@@ -75,11 +75,35 @@ export function eventLogProblem({ participants, events }: EventLogShape): string
 }
 const eventLogBlock = z.strictObject(eventLogFields).refine(block => !eventLogProblem(block), { message: 'Invalid event log references' })
 
-export const conversationContentDraftSchema = z.discriminatedUnion('kind', [textBlock, excerptBlock, eventLogBlock])
+export const diagramLimits = { nodes: 12, edges: 20, label: 24, edgeLabel: 16, title: 120 } as const
+const diagramFields = {
+  kind: z.literal('diagram'),
+  title: clean(diagramLimits.title),
+  nodes: z.array(z.strictObject({ id: localId, label: clean(diagramLimits.label) })).min(2).max(diagramLimits.nodes),
+  // Edges are directed. Their order is the reading order of the text view.
+  edges: z.array(z.strictObject({
+    from: localId, to: localId, label: clean(diagramLimits.edgeLabel).optional(),
+  })).min(1).max(diagramLimits.edges),
+  citations: z.array(citationSchema).min(1),
+}
+type DiagramShape = { nodes: { id: string }[]; edges: { from: string; to: string }[] }
+
+export function diagramProblem({ nodes, edges }: DiagramShape): string | null {
+  const known = new Set(nodes.map(node => node.id))
+  if (known.size !== nodes.length) return 'duplicate_node'
+  if (edges.some(edge => !known.has(edge.from) || !known.has(edge.to))) return 'unknown_node'
+  if (edges.some(edge => edge.from === edge.to)) return 'self_edge'
+  if (new Set(edges.map(edge => edge.from + '\u0000' + edge.to)).size !== edges.length) return 'duplicate_edge'
+  return null
+}
+const diagramBlock = z.strictObject(diagramFields).refine(block => !diagramProblem(block), { message: 'Invalid diagram edges' })
+
+export const conversationContentDraftSchema = z.discriminatedUnion('kind', [textBlock, excerptBlock, eventLogBlock, diagramBlock])
 export const conversationContentSchema = z.array(z.discriminatedUnion('kind', [
   textBlock.extend({ id: z.uuid() }),
   excerptBlock.extend({ id: z.uuid() }),
   z.strictObject({ ...eventLogFields, id: z.uuid() }).refine(block => !eventLogProblem(block), { message: 'Invalid event log references' }),
+  z.strictObject({ ...diagramFields, id: z.uuid() }).refine(block => !diagramProblem(block), { message: 'Invalid diagram edges' }),
   z.strictObject({ kind: z.literal('unavailable'), id: z.uuid() }),
 ])).min(1).refine(blocks => new Set(blocks.map(block => block.id)).size === blocks.length)
 
@@ -87,6 +111,16 @@ export type ConversationCitation = z.infer<typeof citationSchema>
 export type ConversationContentDraft = z.infer<typeof conversationContentDraftSchema>
 export type ConversationContent = z.infer<typeof conversationContentSchema>
 export type EventLogBlock = Extract<ConversationContentDraft, { kind: 'event_log' }>
+export type DiagramBlock = Extract<ConversationContentDraft, { kind: 'diagram' }>
+
+// The text view keeps every relation in order and lists nodes that have no relation, so it carries the whole diagram.
+export function diagramLines(block: Pick<DiagramBlock, 'nodes' | 'edges'>) {
+  const label = new Map(block.nodes.map(node => [node.id, node.label]))
+  const connected = new Set(block.edges.flatMap(edge => [edge.from, edge.to]))
+  const relations = block.edges.map(edge =>
+    `${label.get(edge.from)} → ${label.get(edge.to)}${edge.label ? `（${edge.label}）` : ''}`)
+  return [...relations, ...block.nodes.filter(node => !connected.has(node.id)).map(node => node.label)]
+}
 
 export function eventLogLines(block: Pick<EventLogBlock, 'participants' | 'events'>) {
   const label = new Map(block.participants.map(item => [item.id, item.label]))
@@ -106,6 +140,7 @@ export function conversationContentText(content: readonly ConversationContentDra
       const lines = eventLogLines(block).map((line, index) => `${index + 1}. ${line.actors}：${line.text}`)
       return [[block.title, ...lines].join('\n')]
     }
+    if (block.kind === 'diagram') return [[block.title, ...diagramLines(block).map(line => '- ' + line)].join('\n')]
     return []
   }).join('\n\n') || null
 }

@@ -55,3 +55,23 @@ test('event log blocks reject broken references, unknown views and duplicate IDs
   assert.equal(conversationContentSchema.safeParse([block, { ...block }]).success, false, 'block IDs stay unique')
   assert.equal(conversationContentText(conversationContentSchema.parse([block])), '借书\n1. 小林 → 馆员：借书\n2. 馆员：查找')
 })
+
+test('diagram blocks reject unknown nodes, self edges and duplicate edges', () => {
+  const block = {
+    id, kind: 'diagram', title: '借书流程',
+    nodes: [{ id: 'ask', label: '询问' }, { id: 'reserve', label: '登记预约' }, { id: 'notify', label: '到书通知' }, { id: 'note', label: '备注' }],
+    edges: [{ from: 'ask', to: 'reserve', label: '书已借出' }, { from: 'reserve', to: 'notify' }],
+    citations: [{ sourceId: 'notes', label: '记录', quote: '小林登记预约。' }],
+  }
+  const parse = (value: object) => conversationContentSchema.safeParse([value]).success
+  assert.equal(parse(block), true)
+  assert.equal(parse({ ...block, edges: [{ from: 'ask', to: 'missing' }] }), false)
+  assert.equal(parse({ ...block, edges: [{ from: 'ask', to: 'ask' }] }), false)
+  assert.equal(parse({ ...block, edges: [block.edges[0], { from: 'ask', to: 'reserve', label: '另一条' }] }), false)
+  assert.equal(parse({ ...block, nodes: [block.nodes[0], { id: 'ask', label: '重复' }] }), false)
+  assert.equal(parse({ ...block, edges: [] }), false)
+  assert.equal(parse({ ...block, nodes: [block.nodes[0]] }), false)
+  assert.equal(parse({ ...block, nodes: [...block.nodes.slice(1), { id: 'ask', label: '超'.repeat(25) }] }), false)
+  assert.equal(conversationContentText(conversationContentSchema.parse([block])),
+    '借书流程\n- 询问 → 登记预约（书已借出）\n- 登记预约 → 到书通知\n- 备注')
+})

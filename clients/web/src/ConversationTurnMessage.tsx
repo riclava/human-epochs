@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import type { ConversationCitation, ConversationSource, ConversationTurn } from '../../../src/contracts/conversation'
+import { Diagram } from './Diagram'
 import { EventLog } from './EventLog'
 
 const markdownComponents: Components = {
@@ -51,6 +52,7 @@ export function ConversationTurnMessage({ turn, status, preview, memory }: {
         return <div key={block.id}>
           {block.kind === 'text' && <ReplyMarkdown text={block.text} streaming={false} />}
           {block.kind === 'event_log' && <EventLog block={block} />}
+          {block.kind === 'diagram' && <Diagram block={block} />}
           <Citations citations={block.kind === 'excerpt' ? [block.source] : block.citations} />
         </div>
       }) : preview ? <ReplyMarkdown text={preview} streaming /> : status}

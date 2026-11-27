@@ -360,6 +360,23 @@ button:disabled { cursor: not-allowed; }
   .event-log[data-view="sequence"] li[data-direction="forward"]::after { inset-inline-end: -6px; border-inline-start-color: var(--color-accent); }
   .event-log[data-view="sequence"] li[data-direction="backward"]::after { inset-inline-start: -6px; border-inline-end-color: var(--color-accent); }
 }
+.diagram { container-type: inline-size; margin: var(--space-3) 0 0; }
+.diagram figcaption { font-weight: 600; line-height: 1.4; }
+.diagram-drawing { display: none; }
+.diagram-relations { margin: var(--space-2) 0 0; padding-inline-start: var(--space-6); line-height: 1.6; overflow-wrap: anywhere; }
+.diagram-relations li + li { margin-block-start: var(--space-1); }
+.diagram-node { fill: var(--color-subtle); stroke: var(--color-border); stroke-width: 1; }
+.diagram-node-label { fill: var(--color-ink); font-size: 14px; }
+.diagram-edge-label { fill: var(--color-muted); font-size: 13px; }
+.diagram-edge-label-bg { fill: var(--color-panel); }
+.diagram-edge { fill: none; stroke: var(--color-accent); stroke-width: 1.5; }
+.diagram-arrowhead { fill: var(--color-accent); }
+
+/* Like event logs, the drawing needs room. Enlarged text raises the threshold and keeps the relation list. */
+@container (min-width: 36rem) {
+  .diagram-drawing { display: block; width: 100%; height: auto; margin-block-start: var(--space-2); }
+  .diagram-relations { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 .turn-status { color: var(--color-muted); font-size: var(--text-small); }
 .turn-status button { margin-inline-start: var(--space-2); }
 

@@ -660,3 +660,33 @@ test('事件块在桌面显示时序图，在窄屏和放大文字时显示同�
   await expect(figure(phone).locator('.event-log-actors').first()).toBeVisible()
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
+
+test('关系图在桌面显示图形，在窄屏和放大文字时显示同一份关系列表', async ({ page, phone, user }) => {
+  const replyBlocks = [{
+    id: randomUUID(), kind: 'diagram', title: '借书流程',
+    nodes: [{ id: 'ask', label: '借书' }, { id: 'reserve', label: '登记预约' }, { id: 'notify', label: '到书通知' }],
+    edges: [{ from: 'ask', to: 'reserve', label: '书已借出' }, { from: 'reserve', to: 'notify' }, { from: 'notify', to: 'ask', label: '再借' }],
+    citations: [{ sourceId: 'notes', label: '借书记录（合成）', quote: '小林登记后，馆员说书到了会通知。' }],
+  }]
+  await user.pool.query(`
+    INSERT INTO conversation_turns (user_id, request_id, message_text, reply_blocks, status)
+    VALUES ($1, $2, '借书流程是什么？', $3, 'complete')
+  `, [user.id, randomUUID(), JSON.stringify(replyBlocks)])
+  const figure = (device: Page) => log(device).getByRole('figure', { name: '借书流程' })
+  const relations = ['借书 → 登记预约（书已借出）', '登记预约 → 到书通知', '到书通知 → 借书（再借）']
+
+  await signIn(page, user.email)
+  await expect(figure(page).locator('svg.diagram-drawing')).toBeVisible()
+  await expect(figure(page).locator('svg .diagram-node')).toHaveCount(3)
+  await expect(figure(page).locator('svg .diagram-edge')).toHaveCount(3)
+  await expect(figure(page).getByRole('list', { name: '关系' }).getByRole('listitem')).toHaveText(relations)
+
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+  await expect(figure(page).locator('svg.diagram-drawing')).toBeHidden()
+  await page.evaluate(() => { document.documentElement.style.fontSize = '' })
+
+  await signIn(phone, user.email)
+  await expect(figure(phone).locator('svg.diagram-drawing')).toBeHidden()
+  await expect(figure(phone).getByRole('list', { name: '关系' }).getByRole('listitem')).toHaveText(relations)
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})

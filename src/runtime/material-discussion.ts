@@ -34,6 +34,8 @@ const explanationSchema = z.strictObject({
   z.strictObject({
     kind: z.literal("event_log"), title: z.string(), view: z.string(),
     participants: z.array(z.unknown()), events: z.array(z.unknown()), citations: citationsSchema,
+  }), z.strictObject({
+    kind: z.literal("diagram"), title: z.string(), nodes: z.array(z.unknown()), edges: z.array(z.unknown()), citations: citationsSchema,
   })])).min(1).max(6),
   review: z.unknown().optional(),
   reviewAnswered: z.unknown().optional(),
@@ -72,9 +74,17 @@ function verifiedBlock(block: z.infer<typeof explanationSchema>["blocks"][number
   if (!citations) return null;
   if (block.kind === "text") return quotesAreSourced(block.text, sources) ? { kind: "text", text: block.text, citations } : null;
   const parsed = conversationContentDraftSchema.safeParse({ ...block, citations });
-  if (!parsed.success || parsed.data.kind !== "event_log") return null;
-  const texts = [parsed.data.title, ...parsed.data.events.map(event => event.text)];
-  return texts.every(text => quotesAreSourced(text, sources)) ? parsed.data : null;
+  if (!parsed.success || parsed.data.kind !== block.kind) return null;
+  return structuredTexts(parsed.data).every(text => quotesAreSourced(text, sources)) ? parsed.data : null;
+}
+
+// Every piece of wording a structured view shows is checked like body text.
+function structuredTexts(block: ConversationContentDraft): string[] {
+  if (block.kind === "event_log") return [block.title, ...block.events.map(event => event.text)];
+  if (block.kind === "diagram") {
+    return [block.title, ...block.nodes.map(node => node.label), ...block.edges.flatMap(edge => edge.label ? [edge.label] : [])];
+  }
+  return [];
 }
 
 function verifiedExplanation(blocks: z.infer<typeof explanationSchema>["blocks"], sources: ConversationSource[]): MaterialExplanation | null {

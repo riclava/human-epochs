@@ -82,3 +82,55 @@ test('event logs are verified, published once and read back identically on both 
     assert.ok(fallback.replyBlocks!.every(block => block.kind !== 'event_log'), name)
   }
 })
+
+test('diagrams are verified, published and read back as text for follow-ups', { timeout: 10_000 }, async t => {
+  const user = await createTestUser(pool)
+  t.after(() => removeTestUser(pool, user.id))
+  const histories: string[] = []
+  let reply: (sourceId: string) => object = () => ({})
+  const server = createApp(pool, async ({ messages }) => {
+    const prompt: MaterialPrompt = JSON.parse(messages[0]!.content!)
+    histories.push(JSON.stringify(prompt.history))
+    return { kind: 'text', text: JSON.stringify(reply(prompt.sources[0]!.id)) }
+  })
+  t.after(() => server.close())
+  const cookie = await login(server, user.email)
+  const ask = async (requestId: string, messageText: string, materialSelection: object) => {
+    const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
+      payload: { requestId, messageText, materialSelection } })
+    assert.equal(response.statusCode, 200, response.payload)
+    return readConversationTurn(response.payload, String(response.headers['content-type']))
+  }
+  const nodes = [{ id: 'ask', label: '借书' }, { id: 'reserve', label: '登记预约' }, { id: 'notify', label: '到书通知' }]
+  const edges = [{ from: 'ask', to: 'reserve', label: '书已借出' }, { from: 'reserve', to: 'notify' }]
+  const diagram = (sourceId: string, overrides: object = {}) => ({
+    kind: 'diagram', title: '借书流程', nodes, edges, citations: [{ sourceId, quote: '小林登记后' }], ...overrides,
+  })
+
+  reply = sourceId => ({ blocks: [diagram(sourceId), { kind: 'text', text: '预约是借不到书时的下一步。', citations: [{ sourceId, quote: '请小林登记预约' }] }] })
+  const rootId = randomUUID()
+  const first = await ask(rootId, '借书流程是什么？', { excerpt })
+  assert.equal(first.explanationSource, 'model')
+  const [block] = first.replyBlocks!
+  assert.equal(block?.kind, 'diagram')
+  if (block?.kind !== 'diagram') return
+  assert.deepEqual({ nodes: block.nodes, edges: block.edges }, { nodes, edges })
+
+  reply = sourceId => ({ blocks: [{ kind: 'text', text: '到书后会通知。', citations: [{ sourceId, quote: '书到了会通知' }] }] })
+  await ask(randomUUID(), '最后一步是什么？', { parentRequestId: rootId })
+  assert.match(histories.at(-1)!, /借书流程\\n- 借书 → 登记预约（书已借出）\\n- 登记预约 → 到书通知/u)
+
+  const invalid: [string, (sourceId: string) => object][] = [
+    ['unknown node', sourceId => diagram(sourceId, { edges: [{ from: 'ask', to: 'return' }] })],
+    ['self edge', sourceId => diagram(sourceId, { edges: [{ from: 'ask', to: 'ask' }] })],
+    ['duplicate edge', sourceId => diagram(sourceId, { edges: [edges[0], { ...edges[0], label: '再次' }] })],
+    ['unsourced citation', sourceId => diagram(sourceId, { citations: [{ sourceId, quote: '馆员送书上门' }] })],
+    ['unsourced quotation', sourceId => diagram(sourceId, { nodes: [nodes[0], nodes[1], { id: 'notify', label: '“送书上门”' }] })],
+  ]
+  for (const [name, block] of invalid) {
+    reply = sourceId => ({ blocks: [block(sourceId)] })
+    const fallback = await ask(randomUUID(), '借书流程是什么？', { excerpt })
+    assert.equal(fallback.explanationSource, 'excerpt', name)
+    assert.ok(fallback.replyBlocks!.every(item => item.kind !== 'diagram'), name)
+  }
+})
