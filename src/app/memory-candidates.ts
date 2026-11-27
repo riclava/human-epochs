@@ -15,7 +15,7 @@ export async function readCandidateState(db: Pool | PoolClient, userId: string) 
     ) AS "suggestionsPending"
     FROM users WHERE id = $1
   `, [userId])
-  return { candidates: candidates.rows, suggestionsEnabled: false, suggestionsPending: false, ...settings.rows[0] }
+  return { candidates: candidates.rows, ...settings.rows[0] ?? { suggestionsEnabled: false, suggestionsPending: false } }
 }
 
 // Called in the reply publication transaction. Review answers stay in the review domain.

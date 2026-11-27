@@ -23,10 +23,13 @@ function editingKey(editing: Editing) {
 
 function SuggestionSetting({ enabled, saving, onChange }: { enabled: boolean; saving: boolean; onChange: (enabled: boolean) => void }) {
   const id = useId()
+  // Show the choice while it is being saved. A failed save clears it and the saved setting shows again.
+  const [requested, setRequested] = useState<boolean | null>(null)
+  useEffect(() => { if (!saving) setRequested(null) }, [saving])
   return <div className="memory-suggestions">
     <label className="memory-authorization">
-      <input type="checkbox" checked={enabled} disabled={saving} aria-describedby={id}
-        onChange={event => onChange(event.target.checked)} />
+      <input type="checkbox" checked={requested ?? enabled} disabled={saving} aria-describedby={id}
+        onChange={event => { setRequested(event.target.checked); onChange(event.target.checked) }} />
       让 Agent 从我的消息中提议记忆
     </label>
     <small id={id}>提议需要你确认后才会保存。关闭后，还没处理的提议会被清除。</small>

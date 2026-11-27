@@ -24,6 +24,8 @@ export interface MaterialPublication {
 
 const referenceSchema = z.strictObject({ sourceId: z.string(), quote: z.string().trim().min(1).max(1200) });
 const citationsSchema = z.array(referenceSchema).min(1).max(8);
+// Structured blocks may carry their citations on items instead; the shared contract still requires at least one.
+const blockCitationsSchema = z.array(referenceSchema).max(8).default([]);
 const explanationSchema = z.strictObject({
   blocks: z.array(z.discriminatedUnion("kind", [z.strictObject({
     kind: z.literal("text"),
@@ -33,9 +35,9 @@ const explanationSchema = z.strictObject({
   // Structure is checked by the shared contract after citations are verified.
   z.strictObject({
     kind: z.literal("event_log"), title: z.string(), view: z.string(),
-    participants: z.array(z.unknown()), events: z.array(z.unknown()), citations: citationsSchema,
+    participants: z.array(z.unknown()), events: z.array(z.unknown()), citations: blockCitationsSchema,
   }), z.strictObject({
-    kind: z.literal("diagram"), title: z.string(), nodes: z.array(z.unknown()), edges: z.array(z.unknown()), citations: citationsSchema,
+    kind: z.literal("diagram"), title: z.string(), nodes: z.array(z.unknown()), edges: z.array(z.unknown()), citations: blockCitationsSchema,
   })])).min(1).max(6),
   review: z.unknown().optional(),
   reviewAnswered: z.unknown().optional(),
@@ -70,12 +72,34 @@ function verifiedBlock(block: z.infer<typeof explanationSchema>["blocks"][number
     const source = verifyCitation(block.source, sources);
     return source && { kind: "excerpt", source };
   }
-  const citations = verifyCitations(block.citations, sources);
+  if (block.kind === "text") {
+    const citations = verifyCitations(block.citations, sources);
+    return citations && quotesAreSourced(block.text, sources) ? { kind: "text", text: block.text, citations } : null;
+  }
+  const { block: flat, references } = hoistCitations(block);
+  const nested = z.array(referenceSchema).max(16).safeParse(references);
+  const citations = nested.success && verifyCitations([...block.citations, ...nested.data], sources);
   if (!citations) return null;
-  if (block.kind === "text") return quotesAreSourced(block.text, sources) ? { kind: "text", text: block.text, citations } : null;
-  const parsed = conversationContentDraftSchema.safeParse({ ...block, citations });
+  const parsed = conversationContentDraftSchema.safeParse({ ...flat, citations });
   if (!parsed.success || parsed.data.kind !== block.kind) return null;
   return structuredTexts(parsed.data).every(text => quotesAreSourced(text, sources)) ? parsed.data : null;
+}
+
+type StructuredDraft = Extract<z.infer<typeof explanationSchema>["blocks"][number], { kind: "event_log" | "diagram" }>;
+
+// Models sometimes cite each event, node or edge. Those citations move to the block and are verified with the rest.
+function hoistCitations(block: StructuredDraft) {
+  const references: unknown[] = [];
+  const strip = (items: unknown[]) => items.map(item => {
+    if (!item || typeof item !== "object" || !("citations" in item)) return item;
+    const { citations, ...rest } = item as { citations: unknown };
+    if (Array.isArray(citations)) references.push(...citations);
+    return rest;
+  });
+  const flat = block.kind === "event_log"
+    ? { ...block, events: strip(block.events) }
+    : { ...block, nodes: strip(block.nodes), edges: strip(block.edges) };
+  return { block: flat, references };
 }
 
 // Every piece of wording a structured view shows is checked like body text.

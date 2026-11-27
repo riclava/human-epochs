@@ -2,7 +2,7 @@ import type { DiagramBlock } from '../../../src/contracts/conversation'
 
 export const diagramMetrics = {
   nodeWidth: 136, dummyWidth: 16, lineHeight: 18, paddingY: 10, rankGap: 56, columnGap: 24, margin: 16,
-  loop: 32, loopStep: 12, channelStep: 6, charsPerLine: 7, nodeFontSize: 14, labelFontSize: 13, labelHeight: 22, labelGap: 4,
+  loop: 32, loopStep: 12, channelStep: 6, nodePaddingX: 12, nodeFontSize: 14, labelFontSize: 13, labelHeight: 22, labelGap: 4,
 } as const
 
 export interface Box { x: number; y: number; width: number; height: number }
@@ -30,9 +30,9 @@ export const estimateTextWidth: MeasureText = (text, em) =>
 // may break anywhere, as in ordinary Chinese typesetting.
 const tokens = (label: string) => label.match(/[\p{Script=Latin}\p{N}'’._-]+|\s+|./gsu) ?? []
 
-// Lines hold the width of `charsPerLine` full-width characters. A word longer than a whole line breaks between letters.
+// Lines fill the node width inside its padding. A word longer than a whole line breaks between letters.
 function wrap(label: string, measure: MeasureText) {
-  const budget = m.charsPerLine * m.nodeFontSize
+  const budget = m.nodeWidth - m.nodePaddingX * 2
   const fits = (text: string) => measure(text, m.nodeFontSize) <= budget
   const lines: string[] = []
   let line = ''
@@ -208,20 +208,34 @@ function routeForward(chain: string[], placed: Map<string, PlacedNode>) {
     points.push([centerX(slot), slot.y], [centerX(slot), slot.y + slot.height])
   }
   points.push([centerX(end), end.y])
-  return { path: pathOf(points), firstSegment: [points[0]!, points[1]!] as [Point, Point] }
+  return points
 }
 
 const labelPositions = [0.5, 0.35, 0.65, 0.2, 0.8]
 
-// Each forward label sits on the first segment of its edge. It tries a few points along that segment before
-// sliding sideways, so a crowded gap keeps labels next to their own lines.
-function placeForwardLabels(requests: { edge: PlacedEdge; segment: [Point, Point] }[], nodes: Box[], measure: MeasureText) {
+// Horizontal and vertical runs of other edges, as thin boxes. Diagonal runs are left out because their bounding
+// boxes would block most of a gap.
+function straightRuns(routes: Map<string, Point[]>, except: string) {
+  return [...routes].flatMap(([key, points]) => key === except ? [] : points.slice(1).flatMap((end, index): Box[] => {
+    const start = points[index]!
+    if (start[0] !== end[0] && start[1] !== end[1]) return []
+    return [{ x: Math.min(start[0], end[0]) - 1, y: Math.min(start[1], end[1]) - 1,
+      width: Math.abs(end[0] - start[0]) + 2, height: Math.abs(end[1] - start[1]) + 2 }]
+  }))
+}
+
+// Each forward label sits on the first segment of its edge. It tries a few points along that segment, avoiding
+// nodes, other labels and the straight runs of other edges, before sliding sideways.
+function placeForwardLabels(edges: PlacedEdge[], routes: Map<string, Point[]>, nodes: Box[], measure: MeasureText) {
   const taken: Box[] = []
-  for (const { edge, segment: [[x1, y1], [x2, y2]] } of requests) {
-    const size = labelSize(edge.label!, measure)
+  for (const edge of edges) {
+    if (edge.back || !edge.label) continue
+    const [[x1, y1], [x2, y2]] = routes.get(edge.key)! as [Point, Point]
+    const size = labelSize(edge.label, measure)
     const at = (t: number): Box => ({ ...size, x: x1 + (x2 - x1) * t - size.width / 2, y: y1 + (y2 - y1) * t - size.height / 2 })
     const clearOf = (obstacles: Box[]) => (box: Box) => !obstacles.some(other => overlaps(box, other))
-    let box = labelPositions.map(at).find(clearOf([...taken, ...nodes]))
+    let box = labelPositions.map(at).find(clearOf([...taken, ...nodes, ...straightRuns(routes, edge.key)]))
+      ?? labelPositions.map(at).find(clearOf([...taken, ...nodes]))
     if (!box) {
       box = at(0.5)
       while (!clearOf(taken)(box)) box.x += m.labelGap
@@ -240,9 +254,9 @@ function routeBack(from: PlacedNode, to: PlacedNode, order: number, right: numbe
   const above = to.y - m.rankGap / 2 - order * m.channelStep
   const bend = right + m.loop + order * m.loopStep
   const points: Point[] = [[exitX, from.y + from.height], [exitX, below], [bend, below], [bend, above], [entryX, above], [entryX, to.y]]
-  if (!label) return { path: pathOf(points) }
+  if (!label) return { points }
   const size = labelSize(label, measure)
-  return { path: pathOf(points), labelBox: { ...size, x: bend + m.labelGap, y: (below + above) / 2 - size.height / 2 } }
+  return { points, labelBox: { ...size, x: bend + m.labelGap, y: (below + above) / 2 - size.height / 2 } }
 }
 
 // Pushes overlapping boxes apart along one axis, keeping their original order on that axis.
@@ -265,20 +279,20 @@ export function layoutDiagram(graph: Graph, measure: MeasureText = estimateTextW
   const { placed, contentWidth, bottom } = placeRows(rows, m.margin + channel)
   const right = m.margin + contentWidth
   let backOrder = 0
-  const requests: { edge: PlacedEdge; segment: [Point, Point] }[] = []
+  const routes = new Map<string, Point[]>()
   const edges = graph.edges.map((edge, index): PlacedEdge => {
     const key = edge.from + '>' + edge.to
     if (back.has(index)) {
-      const route = routeBack(placed.get(edge.from)!, placed.get(edge.to)!, backOrder++, right, measure, edge.label)
-      return { key, back: true, label: edge.label, ...route }
+      const { points, labelBox } = routeBack(placed.get(edge.from)!, placed.get(edge.to)!, backOrder++, right, measure, edge.label)
+      routes.set(key, points)
+      return { key, back: true, label: edge.label, path: pathOf(points), ...(labelBox ? { labelBox } : {}) }
     }
-    const { path, firstSegment } = routeForward(chains.get(index)!, placed)
-    const placedEdge: PlacedEdge = { key, back: false, label: edge.label, path }
-    if (edge.label) requests.push({ edge: placedEdge, segment: firstSegment })
-    return placedEdge
+    const points = routeForward(chains.get(index)!, placed)
+    routes.set(key, points)
+    return { key, back: false, label: edge.label, path: pathOf(points) }
   })
   const nodes = [...placed.values()].filter(node => node.lines.length)
-  placeForwardLabels(requests, nodes, measure)
+  placeForwardLabels(edges, routes, nodes, measure)
   separate(edges.flatMap(edge => edge.back && edge.labelBox ? [edge.labelBox] : []), 'y')
   const boxes = edges.flatMap(edge => edge.labelBox ? [edge.labelBox] : [])
   const loops = back.size ? m.loop + (back.size - 1) * m.loopStep : 0

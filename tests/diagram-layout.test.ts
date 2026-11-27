@@ -59,7 +59,7 @@ test('a loop leaves and enters through the gaps, never across a row of nodes, an
     nodes: [{ id: 'try', label: '尝试回忆这段材料的要点' }, { id: 'check', label: '核对' }, { id: 'side', label: '旁注' }],
     edges: [{ from: 'try', to: 'check' }, { from: 'try', to: 'side' }, { from: 'check', to: 'try', label: '没记住' }],
   })
-  assert.deepEqual(layout.nodes.find(node => node.id === 'try')!.lines, ['尝试回忆这段材', '料的要点'])
+  assert.deepEqual(layout.nodes.find(node => node.id === 'try')!.lines, ['尝试回忆这段材料', '的要点'])
   const loop = layout.edges.find(edge => edge.back)!
   const points = pathPoints(loop.path)
   for (let index = 1; index < points.length; index++) {
@@ -119,8 +119,8 @@ test('Latin labels break between words and get narrower label boxes', () => {
 test('a word longer than a line breaks between letters, and mixed text keeps words whole', () => {
   const lines = (label: string) => layoutDiagram({ nodes: [{ id: 'a', label }, { id: 'b', label: 'b' }], edges: [{ from: 'a', to: 'b' }] })
     .nodes.find(node => node.id === 'a')!.lines
-  assert.deepEqual(lines('Internationalization'), ['Internation', 'alization'])
-  assert.deepEqual(lines('用 Anki 安排复习计划'), ['用 Anki 安排', '复习计划'])
+  assert.deepEqual(lines('Internationalization'), ['International', 'ization'])
+  assert.deepEqual(lines('用 Anki 安排复习计划'), ['用 Anki 安排复', '习计划'])
 })
 
 test('layout uses the injected text measurer for wrapping and label boxes', () => {
@@ -129,4 +129,23 @@ test('layout uses the injected text measurer for wrapping and label boxes', () =
   assert.equal(wide.edges[0]!.labelBox!.width, 6 * 40 + 8)
   assert.deepEqual(layoutDiagram({ nodes: [{ id: 'a', label: 'ab cd' }, { id: 'b', label: 'b' }], edges: [{ from: 'a', to: 'b' }] },
     text => text.length * 40).nodes[0]!.lines, ['ab', 'cd'])
+})
+
+test('a label avoids the straight runs of other edges when its own line has room elsewhere', () => {
+  // The loop from "no" back to "try" runs horizontally through the gap where the "skip" label would sit at its midpoint.
+  const layout = layoutDiagram({
+    nodes: [{ id: 'q', label: '看题' }, { id: 'try', label: '尝试回忆' }, { id: 'check', label: '核对' },
+      { id: 'no', label: '需要再练' }, { id: 'later', label: '安排下次' }],
+    edges: [{ from: 'q', to: 'try' }, { from: 'try', to: 'check' }, { from: 'check', to: 'no' },
+      { from: 'no', to: 'try', label: '再试' }, { from: 'q', to: 'later', label: '跳过' }],
+  })
+  const skip = layout.edges.find(edge => edge.key === 'q>later')!.labelBox!
+  const loop = pathPoints(layout.edges.find(edge => edge.key === 'no>try')!.path)
+  for (let index = 1; index < loop.length; index++) {
+    const [[x1, y1], [x2, y2]] = [loop[index - 1]!, loop[index]!]
+    if (x1 !== x2 && y1 !== y2) continue
+    const run = { x: Math.min(x1, x2), y: Math.min(y1, y2), width: Math.abs(x2 - x1) || 0.1, height: Math.abs(y2 - y1) || 0.1 }
+    assert.ok(!overlaps(skip, run), `the skip label covers loop segment ${index}`)
+  }
+  assertInside(layout)
 })

@@ -22,6 +22,8 @@ const system = [
   `只返回 JSON 对象 {"candidates":[{"kind":"statement|wish|inference","body":"以用户口吻写的记忆内容","quote":"逐字摘自消息的依据",`,
   `"reason":"为什么以后有用","topic":"适用主题，可为空字符串","tutoring":true}]}，最多 ${memoryCandidateLimit} 条。`,
   'statement 是用户陈述的事实，wish 是用户的愿望，inference 是从原话推断、需要用户确认的内容。',
+  'body 一律用第一人称「我」来写，像用户自己记下的一句话，不要写「用户」。',
+  'topic 决定这条记忆何时被使用：只有之后的提问里出现 topic 这几个字时才会用到。所以 topic 写提问里很可能原样出现的短词，例如「雅思」「口语」「Python」，不超过 6 个字；作息、学习习惯、表达偏好这类在所有学习主题都适用的信息，topic 留空字符串。',
 ].join('')
 
 function normalize(text: string) {

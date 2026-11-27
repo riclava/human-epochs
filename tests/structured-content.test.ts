@@ -134,3 +134,35 @@ test('diagrams are verified, published and read back as text for follow-ups', { 
     assert.ok(fallback.replyBlocks!.every(item => item.kind !== 'diagram'), name)
   }
 })
+
+test('citations placed on events or edges move to the block and are still verified', { timeout: 10_000 }, async t => {
+  const user = await createTestUser(pool)
+  t.after(() => removeTestUser(pool, user.id))
+  let reply: (sourceId: string) => object = () => ({})
+  const server = createApp(pool, async ({ messages }) => {
+    const prompt: MaterialPrompt = JSON.parse(messages[0]!.content!)
+    return { kind: 'text', text: JSON.stringify(reply(prompt.sources[0]!.id)) }
+  })
+  t.after(() => server.close())
+  const cookie = await login(server, user.email)
+  const ask = async () => {
+    const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
+      payload: { requestId: randomUUID(), messageText: '借书时发生了什么？', materialSelection: { excerpt } } })
+    return readConversationTurn(response.payload, String(response.headers['content-type']))
+  }
+  const cited = (sourceId: string, quote: string) => [{ sourceId, quote }]
+
+  reply = sourceId => ({ blocks: [{ kind: 'event_log', title: '借书', view: 'list', participants,
+    events: [{ ...events[0], citations: cited(sourceId, '小林向馆员借《史记》') }, { ...events[1], citations: cited(sourceId, '馆员查到书已借出') }] }] })
+  const hoisted = await ask()
+  assert.equal(hoisted.explanationSource, 'model')
+  const [block] = hoisted.replyBlocks!
+  assert.equal(block?.kind, 'event_log')
+  if (block?.kind !== 'event_log') return
+  assert.deepEqual(block.citations.map(citation => citation.quote), ['小林向馆员借《史记》', '馆员查到书已借出'])
+  assert.ok(block.events.every(event => !('citations' in event)))
+
+  reply = sourceId => ({ blocks: [{ kind: 'diagram', title: '借书', nodes: [{ id: 'a', label: '借书' }, { id: 'b', label: '预约' }],
+    edges: [{ from: 'a', to: 'b', citations: cited(sourceId, '馆员把书送到了家') }] }] })
+  assert.equal((await ask()).explanationSource, 'excerpt', 'a nested citation that is not in the source still fails')
+})
