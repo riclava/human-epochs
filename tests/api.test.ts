@@ -922,9 +922,11 @@ test('a user can ask about their own source without a course and an invented cit
   const cookie = await login(user.email)
   const fabricated = '花园里有四十座喷泉'
   let attempts = 0
-  const server = createApp(pool, async ({ format }) => {
+  let revision = ''
+  const server = createApp(pool, async ({ format, messages }) => {
     assert.equal(format, 'json')
     attempts++
+    if (attempts === 2) revision = String(messages.at(-1)?.content)
     return {
       kind: 'text',
       text: JSON.stringify({ blocks: [{ kind: 'text', text: fabricated, citations: [{ sourceId: 'invented-source', quote: fabricated }] }] }),
@@ -936,7 +938,9 @@ test('a user can ask about their own source without a course and an invented cit
   const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: command })
   assert.equal(response.statusCode, 200, response.payload)
   const turn = await terminalTurn(response)
-  assert.equal(attempts, 1)
+  // One revision is requested, naming what failed, before the reply falls back to excerpts.
+  assert.equal(attempts, 2)
+  assert.match(revision, /来源 ID「invented-source」不在本轮可读的来源里/u)
   assert.equal(turn.explanationSource, 'excerpt')
   assert.equal(turn.materialContext?.discussionVersion, null)
   assert.ok(conversationCitations(turn.replyBlocks).some(c => c.label === excerpt.label && c.quote.trim() && excerpt.text.includes(c.quote)))

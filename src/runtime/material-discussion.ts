@@ -1,12 +1,10 @@
 import { z } from "zod";
 import type { AgentSettings } from "../contracts/agent-settings.js";
-import {
-  conversationContentDraftSchema, type ConversationCitation, type ConversationContentDraft, type ConversationProgress,
-  type ConversationSource, type UserConversationTurn,
-} from "../contracts/conversation.js";
+import type { ConversationContentDraft, ConversationProgress, ConversationSource, UserConversationTurn } from "../contracts/conversation.js";
 import { reviewOutcome, reviewProposal, type ReviewOutcome, type ReviewProposal } from "../review/proposal.js";
-import type { ObserveRun } from "./diagnostics.js";
+import type { ObserveRun, VerificationFailure } from "./diagnostics.js";
 import { runMaterialModel } from "./material-model.js";
+import { explanationSchema, outputProblem, revisionRequest, verifyReplyBlocks, type Problem } from "./material-verification.js";
 import type { CallModel, MaterialPrompt } from "./model.js";
 
 export interface MaterialExplanation {
@@ -24,112 +22,42 @@ export interface MaterialPublication {
   readings?: { text: string; sourceIds: string[] }[];
 }
 
-const referenceSchema = z.strictObject({ sourceId: z.string(), quote: z.string().trim().min(1).max(1200) });
-const citationsSchema = z.array(referenceSchema).min(1).max(8);
-// Structured blocks may carry their citations on items instead; the shared contract still requires at least one.
-const blockCitationsSchema = z.array(referenceSchema).max(8).default([]);
-const explanationSchema = z.strictObject({
-  blocks: z.array(z.discriminatedUnion("kind", [z.strictObject({
-    kind: z.literal("text"),
-    text: z.string().trim().min(1).max(800).refine(text => !/[\u0000\uD800-\uDFFF]/u.test(text)),
-    citations: citationsSchema,
-  }), z.strictObject({ kind: z.literal("excerpt"), source: referenceSchema }),
-  // Structure is checked by the shared contract after citations are verified.
-  z.strictObject({
-    kind: z.literal("event_log"), title: z.string(), view: z.string(),
-    participants: z.array(z.unknown()), events: z.array(z.unknown()), citations: blockCitationsSchema,
-  }), z.strictObject({
-    kind: z.literal("diagram"), title: z.string(), nodes: z.array(z.unknown()), edges: z.array(z.unknown()), citations: blockCitationsSchema,
-  })])).min(1).max(6),
-  review: z.unknown().optional(),
-  reviewAnswered: z.unknown().optional(),
-  reviewOutcome: z.unknown().optional(),
-});
 const otherTopicSchema = z.strictObject({
   otherTopic: z.string().trim().min(1).max(4000).refine(text => !/[\u0000\uD800-\uDFFF]/u.test(text)),
 });
 
-function verifyCitation(reference: z.infer<typeof referenceSchema>, sources: ConversationSource[]): ConversationCitation | null {
-  const source = sources.find(item => item.id === reference.sourceId);
-  return source?.text.includes(reference.quote) ? { sourceId: source.id, label: source.label, quote: reference.quote } : null;
-}
+type Interpretation = { kind: "explained"; explanation: MaterialExplanation } | { kind: "rejected"; problems: Problem[] };
 
-// Text in Chinese or straight quotation marks claims to be quoted, so it must appear word for word in a readable
-// source or in the user's own message, which feedback on an answer may quote back.
-function quotesAreSourced(text: string, quotable: readonly string[]) {
-  return Array.from(text.matchAll(/“([^”]+)”|"([^"]+)"/gu))
-    .every(match => quotable.some(passage => passage.includes(match[1] ?? match[2]!)));
-}
-
-function verifyCitations(references: z.infer<typeof citationsSchema>, sources: ConversationSource[]) {
-  const citations: ConversationCitation[] = [];
-  for (const reference of references) {
-    const citation = verifyCitation(reference, sources);
-    if (!citation) return null;
-    if (!citations.some(item => item.sourceId === citation.sourceId && item.quote === citation.quote)) citations.push(citation);
+// Turns a model reply into a verified explanation, or into the problems that kept it from being one.
+function interpret(text: string, prompt: MaterialPrompt, sources: ConversationSource[]): Interpretation {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    return { kind: "rejected", problems: [outputProblem(error)] };
   }
-  return citations;
+  const other = prompt.review && otherTopicSchema.safeParse(value);
+  if (other?.success) return { kind: "explained", explanation: { replyBlocks: [{ kind: "text", text: other.data.otherTopic }] } };
+  const parsed = explanationSchema.safeParse(value);
+  if (!parsed.success) return { kind: "rejected", problems: [outputProblem(parsed.error)] };
+  const verified = verifyReplyBlocks(parsed.data.blocks, sources, prompt.question);
+  if ("problems" in verified) return { kind: "rejected", problems: verified.problems };
+  const explanation: MaterialExplanation = { replyBlocks: verified.blocks, explanationSource: "model" };
+  const answered = !!prompt.review && parsed.data.reviewAnswered === true;
+  const outcome = answered ? reviewOutcome(parsed.data.reviewOutcome) : undefined;
+  const mayOffer = prompt.offerReview && (!prompt.review || answered);
+  const review = mayOffer ? reviewProposal(parsed.data.review, sources) : undefined;
+  return { kind: "explained", explanation: {
+    ...explanation,
+    ...(review && review.question !== prompt.review?.question ? { review } : {}),
+    ...(outcome ? { reviewOutcome: outcome } : {}),
+  } };
 }
 
-function verifiedBlock(
-  block: z.infer<typeof explanationSchema>["blocks"][number], sources: ConversationSource[], quotable: readonly string[],
-): ConversationContentDraft | null {
-  if (block.kind === "excerpt") {
-    const source = verifyCitation(block.source, sources);
-    return source && { kind: "excerpt", source };
-  }
-  if (block.kind === "text") {
-    const citations = verifyCitations(block.citations, sources);
-    return citations && quotesAreSourced(block.text, quotable) ? { kind: "text", text: block.text, citations } : null;
-  }
-  const { block: flat, references } = hoistCitations(block);
-  const nested = z.array(referenceSchema).max(16).safeParse(references);
-  const citations = nested.success && verifyCitations([...block.citations, ...nested.data], sources);
-  // Every structured view in a material explanation needs at least one verified citation.
-  if (!citations || !citations.length) return null;
-  const parsed = conversationContentDraftSchema.safeParse({ ...flat, citations });
-  if (!parsed.success || parsed.data.kind !== block.kind) return null;
-  return structuredTexts(parsed.data).every(text => quotesAreSourced(text, quotable)) ? parsed.data : null;
-}
-
-type StructuredDraft = Extract<z.infer<typeof explanationSchema>["blocks"][number], { kind: "event_log" | "diagram" }>;
-
-// Models sometimes cite each event, node or edge. Those citations move to the block and are verified with the rest.
-function hoistCitations(block: StructuredDraft) {
-  const references: unknown[] = [];
-  const strip = (items: unknown[]) => items.map(item => {
-    if (!item || typeof item !== "object" || !("citations" in item)) return item;
-    const { citations, ...rest } = item as { citations: unknown };
-    if (Array.isArray(citations)) references.push(...citations);
-    return rest;
-  });
-  const flat = block.kind === "event_log"
-    ? { ...block, events: strip(block.events) }
-    : { ...block, nodes: strip(block.nodes), edges: strip(block.edges) };
-  return { block: flat, references };
-}
-
-// Every piece of wording a structured view shows is checked like body text.
-function structuredTexts(block: ConversationContentDraft): string[] {
-  if (block.kind === "event_log") return [block.title, ...block.events.map(event => event.text)];
-  if (block.kind === "diagram") {
-    return [block.title, ...block.nodes.map(node => node.label), ...block.edges.flatMap(edge => edge.label ? [edge.label] : [])];
-  }
-  return [];
-}
-
-function verifiedExplanation(
-  blocks: z.infer<typeof explanationSchema>["blocks"], sources: ConversationSource[], userMessage: string,
-): MaterialExplanation | null {
-  // Citations must come from the sources; quotation marks in the text may also quote the user's message.
-  const quotable = [...sources.map(source => source.text), userMessage];
-  const replyBlocks: ConversationContentDraft[] = [];
-  for (const block of blocks) {
-    const verified = verifiedBlock(block, sources, quotable);
-    if (!verified) return null;
-    replyBlocks.push(verified);
-  }
-  return { replyBlocks, explanationSource: "model" };
+// The most frequent category names the failure in logs.
+function mainFailure(problems: Problem[]): VerificationFailure {
+  const order: VerificationFailure[] = ["invalid_output", "invalid_structure", "invalid_citation", "unsourced_quote"];
+  return order.find(failure => problems.some(problem => problem.failure === failure)) ?? "invalid_output";
 }
 
 function quotePassages(sources: ConversationSource[], question: string): MaterialExplanation {
@@ -157,29 +85,21 @@ export async function discussMaterial(
   publication: MaterialPublication | undefined, prompt: MaterialPrompt, callModel: CallModel | null,
   settings: Readonly<AgentSettings>, options: { observe?: ObserveRun; signal?: AbortSignal; onProgress?: (progress: ConversationProgress) => void },
 ): Promise<MaterialExplanation> {
-  let reason: "model_unavailable" | "model_failed" | "invalid_output" | "invalid_citation" = "model_unavailable";
+  let reason: "model_unavailable" | "model_failed" | VerificationFailure = "model_unavailable";
   if (callModel) {
     reason = "model_failed";
     try {
       const answer = await runMaterialModel(prompt, callModel, settings, options.observe, options.onProgress);
       options.onProgress?.("checking_citations");
-      reason = "invalid_output";
-      const value: unknown = JSON.parse(answer.text);
-      const other = prompt.review && otherTopicSchema.safeParse(value);
-      if (other?.success) return { replyBlocks: [{ kind: "text", text: other.data.otherTopic }] };
-      const parsed = explanationSchema.safeParse(value);
-      if (parsed.success) {
-        const explanation = verifiedExplanation(parsed.data.blocks, answer.sources, prompt.question);
-        if (explanation) {
-          const answered = !!prompt.review && parsed.data.reviewAnswered === true;
-          const outcome = answered ? reviewOutcome(parsed.data.reviewOutcome) : undefined;
-          const mayOffer = prompt.offerReview && (!prompt.review || answered);
-          const review = mayOffer ? reviewProposal(parsed.data.review, answer.sources) : undefined;
-          const next = review && review.question !== prompt.review?.question ? { ...explanation, review } : explanation;
-          return outcome ? { ...next, reviewOutcome: outcome } : next;
-        }
-        reason = "invalid_citation";
+      let result = interpret(answer.text, prompt, answer.sources);
+      // One revision, inside the same request budget, before falling back to course guides or excerpts.
+      if (result.kind === "rejected" && answer.revise) {
+        options.observe?.({ event: "material_retry", reason: mainFailure(result.problems) });
+        reason = mainFailure(result.problems);
+        result = interpret(await answer.revise(revisionRequest(result.problems)), prompt, answer.sources);
       }
+      if (result.kind === "explained") return result.explanation;
+      reason = mainFailure(result.problems);
     } catch {
       options.signal?.throwIfAborted();
     }

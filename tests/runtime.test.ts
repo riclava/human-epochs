@@ -6,6 +6,7 @@ import type { ObserveRun } from "../src/runtime/diagnostics.js";
 import type { MaterialPrompt, ModelMessage, ConversationMessage } from "../src/runtime/model.js";
 import { createTurnRunner, type TurnContext } from "../src/runtime/run-turn.js";
 import { conversationContentText } from "../src/contracts/conversation.js";
+import { defaultAgentSettings } from "../src/contracts/agent-settings.js";
 import { conversationCitations, modelChunk } from "./fixtures/conversation-stream.js";
 
 const deadline = () => new Date(Date.now() + 90_000);
@@ -208,7 +209,8 @@ test("the model loop pairs tool errors with their calls and accepts citations on
   const result = await runner.runTurn({ kind: "material", prompt }, deadline(), undefined, {
     observe: event => events.push(event), onProgress: stage => progress.push(stage),
   });
-  assert.equal(calls, 2);
+  // The tool round and the answer, then one revision because the answer cites a source it never read.
+  assert.equal(calls, 3);
   const [unknown, invalid, outside, background] = toolMessages.slice(2);
   for (const [message, id] of [[unknown, "unknown"], [invalid, "invalid"], [outside, "outside"]] as const) {
     assert.equal(message?.role, "tool");
@@ -265,4 +267,48 @@ test("the runner skips expired attempts and rejects output that arrives after th
   now -= 1_000;
   assert.deepEqual(await runner.runTurn(input, expiresAt), expired);
   assert.equal(calls, 1);
+});
+
+test("a reply that fails verification gets one revision that names the problem, inside the call budget", async () => {
+  const source = { id: "notes", label: "值班记录", text: "周一傍晚，值班员在西侧温室数到三盆开花的兰花。" };
+  const prompt: MaterialPrompt = { question: "兰花开了几盆？", history: [{ role: "user", content: "兰花开了几盆？" }], sources: [source] };
+  const citations = [{ sourceId: source.id, quote: "数到三盆开花的兰花" }];
+  const replies = [
+    { blocks: [{ kind: "text", text: "记录写着“兰花全开了”。", citations }] },
+    { blocks: [{ kind: "text", text: "记录说值班员数到三盆开花的兰花。", citations }] },
+  ];
+  const seen: ModelMessage[][] = [];
+  const runner = createTurnRunner(async ({ messages }) => {
+    seen.push(messages);
+    return { kind: "text", text: JSON.stringify(replies[seen.length - 1]) };
+  });
+  const events: Parameters<ObserveRun>[0][] = [];
+  const result = await runner.runTurn({ kind: "material", prompt }, deadline(), undefined, { observe: event => events.push(event) });
+  assert.equal(result.kind, "complete");
+  if (result.kind !== "complete") return;
+  assert.equal(result.output.explanationSource, "model");
+  assert.equal(conversationContentText(result.output.replyBlocks), "记录说值班员数到三盆开花的兰花。");
+  assert.equal(seen.length, 2);
+  const [, assistant, feedback] = seen[1]!;
+  assert.equal(assistant?.role, "assistant");
+  assert.match(String(feedback?.content), /引号里的「兰花全开了」不在原文或用户消息里/u);
+  assert.deepEqual(events.filter(event => event.event.startsWith("material")), [{ event: "material_retry", reason: "unsourced_quote" }]);
+});
+
+test("no revision is asked for when the request has no model call left", async () => {
+  const long = { id: "long", label: "长记录", text: "记录。".repeat(4000) };
+  const prompt: MaterialPrompt = { question: "记录说了什么？", history: [{ role: "user", content: "记录说了什么？" }], sources: [long] };
+  let calls = 0;
+  const runner = createTurnRunner(async () => {
+    calls++;
+    // The first call reads the source; with a budget of two calls, the answer is the last call there is.
+    if (calls === 1) return { kind: "tool_calls", text: null, calls: [{ id: "read", name: "read_source", arguments: JSON.stringify({ sourceId: long.id }) }] };
+    return { kind: "text", text: JSON.stringify({ blocks: [{ kind: "text", text: "无关。", citations: [{ sourceId: long.id, quote: "不存在的句子" }] }] }) };
+  });
+  const events: Parameters<ObserveRun>[0][] = [];
+  const settings = { ...defaultAgentSettings, maxModelCalls: 2 };
+  const result = await runner.runTurn({ kind: "material", prompt }, deadline(), settings, { observe: event => events.push(event) });
+  assert.equal(calls, 2);
+  assert.equal(result.kind === "complete" && result.output.explanationSource, "excerpt");
+  assert.deepEqual(events.filter(event => event.event.startsWith("material")), [{ event: "material_fallback", reason: "invalid_citation" }]);
 });

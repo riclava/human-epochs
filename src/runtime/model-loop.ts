@@ -1,5 +1,5 @@
 import type { ObserveRun, ToolOutcome } from "./diagnostics.js";
-import type { CallModel, ModelInput, ModelTool, ToolCall } from "./model.js";
+import type { CallModel, ModelInput, ModelMessage, ModelTool, ToolCall } from "./model.js";
 
 export interface ReadOnlyTool {
   definition: ModelTool;
@@ -25,9 +25,10 @@ function executeTool(call: ToolCall, tool: ReadOnlyTool | undefined): { outcome:
   return tool.execute(input, call.id);
 }
 
-export async function runModelLoop(
+// Returns the final text together with the messages that led to it, so a caller can ask for a revision.
+export async function runModelLoopWithTranscript(
   callModel: CallModel, input: Pick<ModelInput, "system" | "messages" | "format">, options?: ToolOptions,
-): Promise<string> {
+): Promise<{ text: string; messages: ModelMessage[]; modelCalls: number }> {
   const tools = options?.tools ?? [];
   const maxModelCalls = options?.maxModelCalls ?? 1;
   const maxToolCalls = options?.maxToolCalls ?? 0;
@@ -42,7 +43,7 @@ export async function runModelLoop(
       ...input, messages,
       ...(definitions.length ? { tools: definitions, toolChoice: mayCallTool ? undefined : "none" } : {}),
     });
-    if (answer.kind === "text") return answer.text;
+    if (answer.kind === "text") return { text: answer.text, messages, modelCalls: step };
     if (!mayCallTool || answer.calls.length === 0 || answer.calls.length > remaining) {
       throw new Error("Tool calls exceed the model or tool budget");
     }
@@ -69,4 +70,10 @@ export async function runModelLoop(
   }
 
   throw new Error("Model call budget exhausted");
+}
+
+export async function runModelLoop(
+  callModel: CallModel, input: Pick<ModelInput, "system" | "messages" | "format">, options?: ToolOptions,
+): Promise<string> {
+  return (await runModelLoopWithTranscript(callModel, input, options)).text;
 }
