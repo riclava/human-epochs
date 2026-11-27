@@ -88,5 +88,6 @@ export function Diagram({ block }: { block: DiagramBlock }) {
     <ul className="diagram-relations" aria-label="关系">
       {lines.map((line, index) => <li key={index}>{line}</li>)}
     </ul>
+    {!block.citations?.length && <p className="structured-note">由 AI 整理，未核对来源</p>}
   </figure>
 }

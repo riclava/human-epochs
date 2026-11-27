@@ -46,6 +46,8 @@ test('event log blocks reject broken references, unknown views and duplicate IDs
   assert.equal(parse({ ...block, view: 'list' }), true)
   assert.equal(parse({ ...block, view: 'chart' }), false)
   assert.equal(parse({ ...block, citations: [] }), false)
+  const { citations: _citations, ...uncited } = block
+  assert.equal(parse(uncited), true, 'ordinary conversation views carry no citations')
   assert.equal(parse({ ...block, events: [{ id: 'e1', from: 'lin', to: 'reader', text: '借书' }] }), false)
   assert.equal(parse({ ...block, events: [{ id: 'e1', from: 'nobody', text: '借书' }] }), false)
   assert.equal(parse({ ...block, events: [block.events[0], { ...block.events[1], id: 'e1' }] }), false)

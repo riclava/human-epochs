@@ -52,7 +52,17 @@ function wrap(label: string, measure: MeasureText) {
     }
   }
   flush()
-  return lines
+  return avoidOrphan(lines)
+}
+
+// A last line holding one CJK character reads as a stray mark, so it takes one character from the line above.
+function avoidOrphan(lines: string[]) {
+  const last = Array.from(lines.at(-1) ?? '')
+  const previous = Array.from(lines.at(-2) ?? '')
+  if (lines.length < 2 || last.length !== 1 || !fullWidth.test(last[0]!) || previous.length < 3 || !fullWidth.test(previous.at(-1)!)) {
+    return lines
+  }
+  return [...lines.slice(0, -2), previous.slice(0, -1).join(''), previous.at(-1)! + last[0]]
 }
 
 export function overlaps(a: Box, b: Box) {

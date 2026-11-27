@@ -159,10 +159,44 @@ test('citations placed on events or edges move to the block and are still verifi
   const [block] = hoisted.replyBlocks!
   assert.equal(block?.kind, 'event_log')
   if (block?.kind !== 'event_log') return
-  assert.deepEqual(block.citations.map(citation => citation.quote), ['小林向馆员借《史记》', '馆员查到书已借出'])
+  assert.deepEqual(block.citations?.map(citation => citation.quote), ['小林向馆员借《史记》', '馆员查到书已借出'])
   assert.ok(block.events.every(event => !('citations' in event)))
 
   reply = sourceId => ({ blocks: [{ kind: 'diagram', title: '借书', nodes: [{ id: 'a', label: '借书' }, { id: 'b', label: '预约' }],
     edges: [{ from: 'a', to: 'b', citations: cited(sourceId, '馆员把书送到了家') }] }] })
   assert.equal((await ask()).explanationSource, 'excerpt', 'a nested citation that is not in the source still fails')
+})
+
+test('ordinary conversation publishes uncited views from fenced replies and reads them back as text', { timeout: 10_000 }, async t => {
+  const user = await createTestUser(pool)
+  t.after(() => removeTestUser(pool, user.id))
+  const histories: string[] = []
+  const handshake = { title: 'TCP 三次握手', view: 'sequence', participants: [{ id: 'c', label: '客户端' }, { id: 's', label: '服务器' }],
+    events: [{ id: 'e1', from: 'c', to: 's', text: 'SYN' }, { id: 'e2', from: 's', to: 'c', text: 'SYN-ACK' }] }
+  const server = createApp(pool, async ({ format, messages }) => {
+    assert.equal(format, 'text')
+    histories.push(JSON.stringify(messages))
+    return { kind: 'text', text: histories.length === 1
+      ? '握手过程如下：\n\n```event_log\n' + JSON.stringify(handshake) + '\n```\n\n最后客户端回 ACK。'
+      : '对，第三步是 ACK。' }
+  })
+  t.after(() => server.close())
+  const desktop = await login(server, user.email)
+  const phone = await login(server, user.email)
+  const send = async (messageText: string) => {
+    const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie: desktop },
+      payload: { requestId: randomUUID(), messageText } })
+    return readConversationTurn(response.payload, String(response.headers['content-type']))
+  }
+
+  const first = await send('TCP 三次握手是怎么回事？')
+  assert.equal(first.status, 'complete')
+  assert.deepEqual(first.replyBlocks!.map(block => block.kind), ['text', 'event_log', 'text'])
+  const view = first.replyBlocks![1]!
+  assert.ok(view.kind === 'event_log' && view.citations === undefined && view.events.length === 2)
+  const phoneView: ConversationSnapshot = (await server.inject({ url: '/api/conversation', headers: { cookie: phone } })).json()
+  assert.deepEqual((phoneView.turns.at(-1) as UserConversationTurn).replyBlocks, first.replyBlocks)
+
+  await send('第三步是什么？')
+  assert.match(histories.at(-1)!, /TCP 三次握手\\n1\. 客户端 → 服务器：SYN/u)
 })

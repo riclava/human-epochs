@@ -2,6 +2,7 @@ import type { ConversationContentDraft, ConversationMode, ConversationProgress, 
 import type { ReviewProposal } from "../review/proposal.js";
 import { defaultAgentSettings, type AgentSettings } from "../contracts/agent-settings.js";
 import type { ObserveRun } from "./diagnostics.js";
+import { splitConversationReply } from "./conversation-blocks.js";
 import { guideConversation } from "./local-guidance.js";
 import { discussMaterial, type MaterialPublication } from "./material-discussion.js";
 import { ModelFailure, type CallModel, type MaterialPrompt, type ReplyDelta, type ConversationMessage, type ModelClient } from "./model.js";
@@ -115,5 +116,5 @@ export function createTurnRunner(model: ModelClient | null, now = Date.now) {
 }
 
 function textReply(text: string): TurnReply {
-  return { replyBlocks: text ? [{ kind: "text", text }] : [] };
+  return { replyBlocks: text ? splitConversationReply(text) : [] };
 }

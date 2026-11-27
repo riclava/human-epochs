@@ -79,7 +79,8 @@ function verifiedBlock(block: z.infer<typeof explanationSchema>["blocks"][number
   const { block: flat, references } = hoistCitations(block);
   const nested = z.array(referenceSchema).max(16).safeParse(references);
   const citations = nested.success && verifyCitations([...block.citations, ...nested.data], sources);
-  if (!citations) return null;
+  // Every structured view in a material explanation needs at least one verified citation.
+  if (!citations || !citations.length) return null;
   const parsed = conversationContentDraftSchema.safeParse({ ...flat, citations });
   if (!parsed.success || parsed.data.kind !== block.kind) return null;
   return structuredTexts(parsed.data).every(text => quotesAreSourced(text, sources)) ? parsed.data : null;

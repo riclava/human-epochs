@@ -32,5 +32,6 @@ export function EventLog({ block }: { block: EventLogBlock }) {
         })}
       </ol>
     </div>
+    {!block.citations?.length && <p className="structured-note">由 AI 整理，未核对来源</p>}
   </figure>
 }

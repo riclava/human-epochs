@@ -149,3 +149,10 @@ test('a label avoids the straight runs of other edges when its own line has room
   }
   assertInside(layout)
 })
+
+test('a single CJK character never sits alone on the last line of a node', () => {
+  const lines = (label: string) => layoutDiagram({ nodes: [{ id: 'a', label }, { id: 'b', label: 'b' }], edges: [{ from: 'a', to: 'b' }] })
+    .nodes.find(node => node.id === 'a')!.lines
+  assert.deepEqual(lines('编辑文件删冲突标记'), ['编辑文件删冲突', '标记'])
+  assert.deepEqual(lines('尝试回忆这段材料的要点'), ['尝试回忆这段材料', '的要点'], 'longer last lines are left alone')
+})

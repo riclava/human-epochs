@@ -61,7 +61,8 @@ const eventLogFields = {
   events: z.array(z.strictObject({
     id: localId, from: localId, to: localId.optional(), text: clean(eventLogLimits.text),
   })).min(1).max(eventLogLimits.events),
-  citations: z.array(citationSchema).min(1),
+  // Material explanations require citations. Ordinary conversation has no source, so its views carry none.
+  citations: z.array(citationSchema).min(1).optional(),
 }
 type EventLogShape = { participants: { id: string }[]; events: { id: string; from: string; to?: string }[] }
 
@@ -84,7 +85,7 @@ const diagramFields = {
   edges: z.array(z.strictObject({
     from: localId, to: localId, label: clean(diagramLimits.edgeLabel).optional(),
   })).min(1).max(diagramLimits.edges),
-  citations: z.array(citationSchema).min(1),
+  citations: z.array(citationSchema).min(1).optional(),
 }
 type DiagramShape = { nodes: { id: string }[]; edges: { from: string; to: string }[] }
 

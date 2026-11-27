@@ -391,6 +391,7 @@ button:disabled { cursor: not-allowed; }
   .event-log[data-view="sequence"] li[data-direction="forward"]::after { border-inline-start-color: CanvasText; }
   .event-log[data-view="sequence"] li[data-direction="backward"]::after { border-inline-start-color: transparent; border-inline-end-color: CanvasText; }
 }
+.structured-note { margin: var(--space-1) 0 0; color: var(--color-muted); font-size: var(--text-small); }
 .turn-status { color: var(--color-muted); font-size: var(--text-small); }
 .turn-status button { margin-inline-start: var(--space-2); }
 

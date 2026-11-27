@@ -5,6 +5,7 @@ import type { Components } from 'react-markdown'
 import type { ConversationCitation, ConversationSource, ConversationTurn } from '../../../src/contracts/conversation'
 import { Diagram } from './Diagram'
 import { EventLog } from './EventLog'
+import { previewReplyText } from './reply-preview'
 
 const markdownComponents: Components = {
   h1: ({ children }) => <h2>{children}</h2>,
@@ -55,7 +56,7 @@ export function ConversationTurnMessage({ turn, status, preview, memory }: {
           {block.kind === 'diagram' && <Diagram block={block} />}
           <Citations citations={block.kind === 'excerpt' ? [block.source] : block.citations} />
         </div>
-      }) : preview ? <ReplyMarkdown text={preview} streaming /> : status}
+      }) : preview ? <ReplyMarkdown text={previewReplyText(preview)} streaming /> : status}
     </div>
   </div>
 }

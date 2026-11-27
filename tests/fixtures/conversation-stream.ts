@@ -21,5 +21,5 @@ export function modelChunk(content: string, finishReason: string | null = null) 
 
 export function conversationCitations(content: readonly ConversationContentDraft[] | ConversationContent | null) {
   return content?.flatMap(block => block.kind === 'text' ? block.citations ?? [] :
-    block.kind === 'excerpt' ? [block.source] : block.kind === 'event_log' || block.kind === 'diagram' ? block.citations : []) ?? []
+    block.kind === 'excerpt' ? [block.source] : block.kind === 'event_log' || block.kind === 'diagram' ? block.citations ?? [] : []) ?? []
 }
