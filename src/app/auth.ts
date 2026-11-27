@@ -1,6 +1,6 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { User } from "../contracts/session.js";
 
 const deriveKey = promisify(scrypt);
@@ -15,7 +15,7 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt:${salt}:${derived.toString("hex")}`;
 }
 
-async function verifyPassword(password: string, storedHash: string | undefined): Promise<boolean> {
+export async function verifyPassword(password: string, storedHash: string | undefined): Promise<boolean> {
   // Unknown accounts do the same key derivation as existing accounts.
   const [algorithm, salt, digest] = (storedHash ?? "").split(":");
   const derived = await deriveKey(password, salt || "00000000000000000000000000000000", hashLength) as Buffer;
@@ -24,7 +24,7 @@ async function verifyPassword(password: string, storedHash: string | undefined):
   return expected.length === derived.length && timingSafeEqual(derived, expected);
 }
 
-function tokenDigest(token: string): string {
+export function tokenDigest(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
@@ -38,7 +38,7 @@ async function sessionUser(pool: Pool, token: string | undefined): Promise<Accou
   return result.rows[0] ?? null;
 }
 
-async function createSession(pool: Pool, userId: string): Promise<string> {
+export async function createSession(pool: Pool | PoolClient, userId: string): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   await pool.query(`
     INSERT INTO sessions (token_hash, user_id, expires_at)

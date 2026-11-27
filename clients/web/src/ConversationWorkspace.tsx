@@ -5,9 +5,11 @@ import { ConversationListPanel } from './ConversationListPanel'
 import { useConversationList } from './useConversationList'
 import { conversationHref, useWorkspacePages } from './workspace-pages'
 
-export function ConversationWorkspace({ user, onUnauthorized, onSignOut, brand }: {
+export function ConversationWorkspace({ user, onUnauthorized, onAccountChanged, onAccountDeleted, onSignOut, brand }: {
   user: User
   onUnauthorized: () => void
+  onAccountChanged: () => void
+  onAccountDeleted: () => void
   onSignOut: () => void
   brand: ReactNode
 }) {
@@ -62,7 +64,7 @@ export function ConversationWorkspace({ user, onUnauthorized, onSignOut, brand }
         </div>
         <div className="sidebar-content" id="workspace-navigation">
           <nav aria-label="主导航">
-            {available.map(page => <a key={page.href} className="workspace-link" href={page.href}
+            {available.filter(page => page.inNavigation ?? true).map(page => <a key={page.href} className="workspace-link" href={page.href}
               aria-current={page === current ? 'page' : undefined} onClick={onNavigationClick}>
               {page.icon}{page.title}
             </a>)}
@@ -70,11 +72,14 @@ export function ConversationWorkspace({ user, onUnauthorized, onSignOut, brand }
           <ConversationListPanel userId={user.id} items={conversations.items} loaded={conversations.loaded} error={conversations.error}
             currentId={conversationId} onReplace={conversations.replace} onRefresh={conversations.refresh}
             onNavigate={onNavigationClick} onStart={startConversation} onUnauthorized={onUnauthorized} />
-          <div className="sidebar-account"><span className="avatar" aria-hidden="true">{Array.from(user.displayName)[0]}</span><span>{user.displayName}</span><button onClick={onSignOut}>退出</button></div>
+          <div className="sidebar-account"><span className="avatar" aria-hidden="true">{Array.from(user.displayName)[0]}</span><a href="#/account" className="account-link" onClick={onNavigationClick}
+            aria-current={href === '#/account' ? 'page' : undefined} aria-label={`账号设置：${user.displayName}`}>{user.displayName}</a>
+            <button onClick={onSignOut}>退出</button></div>
         </div>
       </aside>
       <main ref={main} id="main" tabIndex={-1} className={paneClassName} aria-labelledby={heading.id}>
-        <View key={conversationId ?? href} heading={heading} userId={user.id} onUnauthorized={onUnauthorized}
+        <View key={conversationId ?? href} heading={heading} userId={user.id} user={user} onUnauthorized={onUnauthorized}
+          onAccountChanged={onAccountChanged} onAccountDeleted={onAccountDeleted}
           conversationId={conversationId} onConversationsChanged={conversations.refresh}
           conversationTitle={conversations.items.find(item => item.conversationId === conversationId)?.title} />
       </main>

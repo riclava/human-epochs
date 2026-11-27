@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import type { User } from '../../../src/contracts/session'
 import { ConversationWorkspace } from './ConversationWorkspace'
 import { HttpError, request } from './api'
+import { SignUpForm } from './SignUpForm'
 
 type SessionState =
   | { state: 'checking' | 'signing-out' | 'check-error' | 'sign-out-error' }
@@ -37,6 +38,57 @@ const loginErrors = {
 }
 
 function Login({ onSuccess, notice }: { onSuccess: () => void; notice?: string }) {
+  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
+  const [registrationOpen, setRegistrationOpen] = useState(false)
+  const switchButton = useRef<HTMLButtonElement>(null)
+  const returnedToSignIn = useRef(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void request('/registration', { signal: controller.signal }).then(response => response.json() as Promise<{ open: boolean }>)
+      .then(({ open }) => setRegistrationOpen(open), () => {})
+    return () => controller.abort()
+  }, [])
+  useEffect(() => {
+    if (mode === 'sign-in' && returnedToSignIn.current) switchButton.current?.focus()
+  }, [mode])
+
+  return (
+    <main id="main" className="login-page">
+      <title>{(mode === 'sign-up' ? '注册' : '登录') + ' · Human Epochs'}</title>
+      <LoginCover />
+      <section className="login-form-panel" aria-labelledby="login-title">
+        {mode === 'sign-up' ? <SignUpForm onSuccess={onSuccess} onSignIn={() => { returnedToSignIn.current = true; setMode('sign-in') }} />
+          : <SignInForm onSuccess={onSuccess} notice={notice} switchTo={registrationOpen
+            ? <p className="login-switch">还没有账号？<button ref={switchButton} type="button" className="link-button" onClick={() => setMode('sign-up')}>注册</button></p>
+            : null} />}
+        {import.meta.env.DEV && mode === 'sign-in' && (
+          <details className="dev-accounts">
+            <summary>开发体验账号</summary>
+            <p>邮箱 <code>alice@example.test</code> 或 <code>bob@example.test</code></p>
+            <p>密码 <code>HumanEpochs-demo-1!</code></p>
+          </details>
+        )}
+      </section>
+    </main>
+  )
+}
+
+function LoginCover() {
+  return <aside className="cover" aria-label="关于 Human Epochs">
+    <div className="cover-copy">
+      <p>通用学习 Agent</p>
+      <p className="cover-title">你想弄懂什么？</p>
+      <p className="cover-description">我们希望它能陪你探索不同领域，也能从你分享的经历中理解你的选择和理由，逐步成长为数字生命。</p>
+    </div>
+    <div className="cover-graph" aria-hidden="true">
+      <i className="rail rail-a" /><i className="rail rail-b" /><i className="rail rail-c" />
+      <i className="path path-a" /><i className="path path-b" /><i className="path path-c" />
+    </div>
+  </aside>
+}
+
+function SignInForm({ onSuccess, notice, switchTo }: { onSuccess: () => void; notice?: string; switchTo: ReactNode }) {
   const [error, setError] = useState<keyof typeof loginErrors | null>(null)
   const [pending, setPending] = useState(false)
   const title = useRef<HTMLHeadingElement>(null)
@@ -74,41 +126,20 @@ function Login({ onSuccess, notice }: { onSuccess: () => void; notice?: string }
     }
   }
   return (
-    <main id="main" className="login-page">
-      <aside className="cover" aria-label="关于 Human Epochs">
-        <div className="cover-copy">
-          <p>通用学习 Agent</p>
-          <p className="cover-title">你想弄懂什么？</p>
-          <p className="cover-description">我们希望它能陪你探索不同领域，也能从你分享的经历中理解你的选择和理由，逐步成长为数字生命。</p>
-        </div>
-        <div className="cover-graph" aria-hidden="true">
-          <i className="rail rail-a" /><i className="rail rail-b" /><i className="rail rail-c" />
-          <i className="path path-a" /><i className="path path-b" /><i className="path path-c" />
-        </div>
-      </aside>
-      <section className="login-form-panel" aria-labelledby="login-title">
-        <form onSubmit={submit} onChange={() => setError(null)} aria-busy={pending}>
-          <h1 id="login-title" ref={title} tabIndex={-1} aria-describedby={notice ? 'login-intro' : undefined}>登录</h1>
-          <p className="form-intro" id="login-intro">{notice ?? '登录后，和 Agent 聊聊你想学什么。'}</p>
-          <label htmlFor="email">邮箱</label>
-          <input ref={email} type="email" id="email" name="email" required autoComplete="username" maxLength={254}
-            placeholder="name@example.com" readOnly={pending}
-            aria-invalid={fieldError || undefined} aria-describedby={fieldError ? 'login-error' : undefined} />
-          <label htmlFor="password">密码</label>
-          <input type="password" id="password" name="password" required autoComplete="current-password" maxLength={1024}
-            readOnly={pending} aria-invalid={fieldError || undefined} aria-describedby={fieldError ? 'login-error' : undefined} />
-          {error && <p id="login-error" className="form-error" role="alert">{loginErrors[error]}</p>}
-          <button ref={submitButton} type="submit" className="primary" disabled={pending}>{pending ? '正在登录…' : '进入对话'}</button>
-        </form>
-        {import.meta.env.DEV && (
-          <details className="dev-accounts">
-            <summary>开发体验账号</summary>
-            <p>邮箱 <code>alice@example.test</code> 或 <code>bob@example.test</code></p>
-            <p>密码 <code>HumanEpochs-demo-1!</code></p>
-          </details>
-        )}
-      </section>
-    </main>
+    <form onSubmit={submit} onChange={() => setError(null)} aria-busy={pending}>
+      <h1 id="login-title" ref={title} tabIndex={-1} aria-describedby={notice ? 'login-intro' : undefined}>登录</h1>
+      <p className="form-intro" id="login-intro">{notice ?? '登录后，和 Agent 聊聊你想学什么。'}</p>
+      <label htmlFor="email">邮箱</label>
+      <input ref={email} type="email" id="email" name="email" required autoComplete="username" maxLength={254}
+        placeholder="name@example.com" readOnly={pending}
+        aria-invalid={fieldError || undefined} aria-describedby={fieldError ? 'login-error' : undefined} />
+      <label htmlFor="password">密码</label>
+      <input type="password" id="password" name="password" required autoComplete="current-password" maxLength={1024}
+        readOnly={pending} aria-invalid={fieldError || undefined} aria-describedby={fieldError ? 'login-error' : undefined} />
+      {error && <p id="login-error" className="form-error" role="alert">{loginErrors[error]}</p>}
+      <button ref={submitButton} type="submit" className="primary" disabled={pending}>{pending ? '正在登录…' : '进入对话'}</button>
+      {switchTo}
+    </form>
   )
 }
 
@@ -209,7 +240,7 @@ export function App() {
 
   return (
     <>
-      {session.state !== 'authenticated' && <title>{sessionTitles[session.state] + ' · Human Epochs'}</title>}
+      {session.state !== 'authenticated' && session.state !== 'anonymous' && <title>{sessionTitles[session.state] + ' · Human Epochs'}</title>}
       <a className="skip-link" href="#main" onClick={event => {
         event.preventDefault()
         focusMain()
@@ -245,6 +276,16 @@ export function App() {
           key={session.user.id}
           user={session.user}
           onUnauthorized={recheckSession}
+          onAccountChanged={() => {
+            authenticationEvents.current?.postMessage('changed')
+            void checkSession('background')
+          }}
+          onAccountDeleted={() => {
+            wasAuthenticated.current = false
+            authenticationEvents.current?.postMessage('changed')
+            window.history.replaceState(null, '', window.location.pathname + window.location.search)
+            setSession({ state: 'anonymous', notice: '账号已删除。感谢你使用 Human Epochs。' })
+          }}
           onSignOut={signOut}
           brand={<Brand />}
         />}

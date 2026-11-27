@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { FastifyServerOptions } from "fastify";
 import { createHttpApp } from "../http/app.js";
+import type { RegistrationPolicy } from "../http/accounts.js";
 import type { ModelClient } from "../runtime/model.js";
 import { createActivityService } from "./activities/service.js";
 import { createAgentSettingsService, type ModelOptions } from "./agent-settings.js";
@@ -15,8 +16,8 @@ import { createMaterialLibrary } from "./material-library.js";
 
 export function createApp(
   pool: Pool, model: ModelClient | null, settingsAdminEmails?: string, modelOptions?: ModelOptions,
-  { backgroundJobs = false, logger, reviewNow }: {
-    backgroundJobs?: boolean; logger?: FastifyServerOptions["logger"]; reviewNow?: () => Date;
+  { backgroundJobs = false, logger, reviewNow, registration = { open: process.env.REGISTRATION_ENABLED === "true" } }: {
+    backgroundJobs?: boolean; logger?: FastifyServerOptions["logger"]; reviewNow?: () => Date; registration?: RegistrationPolicy;
   } = {},
 ) {
   const settings = createAgentSettingsService(pool, model, modelOptions);
@@ -28,6 +29,7 @@ export function createApp(
     learning: createLearningService(pool),
     materials: createMaterialLibrary(pool),
     settings,
+    accounts: { pool, registration },
   }, logger);
   if (backgroundJobs) attachBackgroundWorker(app, [
     { name: "conversation summary", run: signal => processNextSummary(pool, settings.execution, signal) },

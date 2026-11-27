@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import type { User } from '../../../src/contracts/session'
+import { AccountView } from './AccountView'
 import { AgentSettings } from './AgentSettings'
 import { ConversationView } from './ConversationView'
 import { LearningRecordView } from './LearningRecordView'
@@ -11,6 +12,10 @@ export { conversationHref, conversationRoute } from './routes'
 
 export interface WorkspacePageProps {
   userId: string
+  user: User
+  // Asks for the session again after the account changed, so the sidebar shows the new name.
+  onAccountChanged: () => void
+  onAccountDeleted: () => void
   onUnauthorized: () => void
   heading: { id: string; text: string }
   // The conversation in the address, or null while the workspace is choosing one.
@@ -27,6 +32,8 @@ interface WorkspacePage {
   icon: ReactNode
   View: ComponentType<WorkspacePageProps>
   canOpen?: (user: User) => boolean
+  // Pages reached from elsewhere, such as the account page from the sidebar's account area.
+  inNavigation?: false
   matches?: (hash: string) => boolean
 }
 
@@ -69,6 +76,13 @@ const pages: readonly WorkspacePage[] = [conversation, learning, materials, {
   icon: <span className="settings-nav-icon" aria-hidden="true">⚙︎</span>,
   View: AgentSettings,
   canOpen: user => user.canManageAgentSettings,
+}, {
+  href: '#/account',
+  title: '账号设置',
+  paneClassName: 'settings-pane',
+  icon: null,
+  View: AccountView,
+  inNavigation: false,
 }]
 
 function subscribeToHash(notify: () => void) {

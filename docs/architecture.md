@@ -74,6 +74,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | 接入 | Web 与 HTTP · `clients/web`、`src/http` | 提供对话视图、请求校验和路由映射。Cookie 和 HTTP 状态由接入层处理。 | 客户端草稿与视图。 |
 | 应用 | 登录会话 · `src/app/auth.ts` | 核对凭据、创建与结束登录会话，并据此取得用户身份。 | `users` 中的账号与 `sessions.user_id` 关联的登录会话。 |
+| 应用 | 账号 · `src/app/accounts.ts`、`src/http/accounts.ts` | 注册账号并创建首个登录会话，处理改名字、改密码和删除账号。 | 写入 `users`；删除账号时清除该用户拥有的全部数据。 |
 | 应用 | 运行设置 · `src/app/agent-settings.ts`、`src/http/agent-settings.ts` | 读取已保存设置，为管理员校验并提交更新。 | `agent_settings` 中的全局参数 `settings`、模型连接 `connection` 和修订号 `revision`。 |
 | 应用 | 对话应用服务 · `src/app/conversation/service.ts`、`src/app/conversation/turns.ts` | `prepareTurn` 收件并领取尝试，随后运行内核、转发正文片段并发布结果。`readSnapshot` 返回一个对话的快照，`listConversations` 按最近使用列出对话。收件和回复发布规则集中在对话记录模块。 | `conversations` 中的对话标题与最近使用时间，`deleted_conversations` 中已删除的对话 ID，`conversation_command_receipts` 中重命名和删除的收据，`conversation_turns` 中所属对话、原消息、材料讨论分支与快照、回复、引文、状态、尝试序号与领取期限。 |
 | 应用 | 教学上下文 · `src/app/conversation/context.ts` | `loadContext` 按身份和讨论分支读取历史及可用来源，并选择普通对话或材料讲解。 | 每次尝试读取的对话与材料快照。 |
@@ -94,6 +95,13 @@ flowchart TB
 内核只接收当次授权上下文、运行期限和注入的模型能力。模型适配器与时钟可替换，HTTP 和 PostgreSQL 留在执行内核之外。现有共享契约继续通过 `src/contracts` 提供给客户端。
 
 `POST /api/login` 和 `GET /api/session` 返回 `{ user }`，Web 与服务端共用 [`User` 类型](../src/contracts/session.ts)。账号主键是 `users.id`，登录会话、对话、活动和记忆的归属字段使用 `user_id`。服务端通过登录 Cookie 确定用户身份。请求携带的 `X-User-Id` 与登录用户不一致时返回 `401`。
+
+`REGISTRATION_ENABLED=true` 时用户可以自行注册；关闭时目前只能由部署方在数据库里建号，`GET /api/registration` 告诉登录页是否显示注册入口。`POST /api/register` 校验邮箱、名字和至少 10 位的密码，在同一事务里创建账号和首个登录会话；邮箱不区分大小写，已注册时返回 `409`。同一地址每小时最多注册 5 次，计数保存在进程内，多实例部署需要改用共享存储。邮箱验证和找回密码尚未实现。
+
+登录后的 `POST /api/account/commands` 受理三种操作：
+- **改名字（`rename`）。** 只改显示名，Agent 的模型输入不包含它。
+- **改密码（`change_password`）。** 先核对当前密码，再更新密码并删除这个账号在其他设备上的登录会话，发起修改的设备保持登录。
+- **删除账号（`delete`）。** 核对密码后在一个事务里删除账号。对话、材料、记忆、复习、活动和登录会话都随 `users` 级联删除；讨论活动关联只指向对话轮次而不随用户级联，因此先行删除。删除后同一邮箱可以重新注册。
 
 Web 的[页面定义](../clients/web/src/workspace-pages.tsx)集中声明路径、标题、页面组件、布局和可用条件。客户端从当前地址和登录信息解析页面，同一结果用于生成导航、页面标题与主区域。未匹配到可用页面时显示「对话」。对话页从 `#/c/<conversationId>` 读取对话；地址是 `#/` 时打开最近使用的对话，还没有对话时打开一个新对话。侧栏列出最近的对话并提供「新对话」，窄屏上随导航一起展开。服务端按登录身份独立核对接口权限。
 

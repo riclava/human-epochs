@@ -27,6 +27,8 @@ npm run dev
 
 已有账号可通过 `AGENT_SETTINGS_ADMIN_EMAILS` 获得运行设置权限。多个邮箱用英文逗号分隔，变更名单后重启服务。开发配置示例授权 Alice。登录后从侧栏进入「运行设置」，可调整模型生成、上下文与材料、执行预算。保存后，新的在线模型尝试会读取同一份设置。[运行参数契约](docs/architecture.md#运行设置)
 
+登录页提供注册入口，由 `.env` 中的 `REGISTRATION_ENABLED` 控制，设为 `false` 时只能使用已有账号。登录后点侧栏底部的名字进入「账号设置」，可以改名字、改密码或删除账号。
+
 管理员可在 Web 的「模型连接」直接填写 OpenAI 兼容服务的 Base URL、API Key 和模型 ID。首次从 Web 保存 API Key 前，在服务端 `.env` 配置通过 `openssl rand -base64 32` 生成的 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 并重启。该值用于加密已保存的 API Key，同一部署的服务实例共用。使用同一地址时可将 API Key 留空，更换地址时填写该地址的密钥。内网或本机模型可通过 `MODEL_ALLOWED_PRIVATE_BASE_URLS` 明确配置完整地址。AI 设置助手可以建议模型 ID 和运行参数，Base URL 与 API Key 由管理员手工填写。[配置示例](.env.example)
 
 ## 检查和构建

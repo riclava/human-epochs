@@ -29,7 +29,7 @@ CREATE TABLE agent_settings (
 
 CREATE TABLE activities (
   id uuid PRIMARY KEY,
-  user_id uuid NOT NULL REFERENCES users(id),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title text NOT NULL,
   seed_key text,
   course_version text NOT NULL REFERENCES course_versions(version),

@@ -4,7 +4,8 @@ import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
 import Fastify, { LogController, type FastifyServerOptions } from "fastify";
 import { z } from "zod";
-import { sessionLifetimeSeconds, type createAuthService } from "../app/auth.js";
+import type { Pool } from "pg";
+import type { createAuthService } from "../app/auth.js";
 import type { User } from "../contracts/session.js";
 import type { createActivityService } from "../app/activities/service.js";
 import type { createAgentSettingsService } from "../app/agent-settings.js";
@@ -18,6 +19,7 @@ import { registerConversation } from "./conversation.js";
 import { registerPersonalMemories } from "./personal-memories.js";
 import { registerLearningRecord } from "./learning-record.js";
 import { registerMaterialLibrary } from "./material-library.js";
+import { registerAccountCommands, registerSignUp, sessionCookie, setSessionCookie, type RegistrationPolicy } from "./accounts.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -29,7 +31,6 @@ const loginSchema = z.strictObject({
   email: z.string().trim().max(254).pipe(z.email()).transform(email => email.toLowerCase()),
   password: z.string().min(1).max(1024),
 });
-const sessionCookie = "he_session";
 
 interface HttpServices {
   auth: ReturnType<typeof createAuthService>;
@@ -39,9 +40,10 @@ interface HttpServices {
   personalMemories: ReturnType<typeof createPersonalMemoryService>;
   learning: ReturnType<typeof createLearningService>;
   materials: ReturnType<typeof createMaterialLibrary>;
+  accounts: { pool: Pool; registration: RegistrationPolicy };
 }
 
-export function createHttpApp({ auth, conversation, activities, settings, personalMemories, learning, materials }: HttpServices, logger: FastifyServerOptions["logger"] = false) {
+export function createHttpApp({ auth, conversation, activities, settings, personalMemories, learning, materials, accounts }: HttpServices, logger: FastifyServerOptions["logger"] = false) {
   const app = Fastify({ logger, logController: new LogController({ disableRequestLogging: true }) });
   app.register(cookie);
   app.register(async api => {
@@ -54,12 +56,11 @@ export function createHttpApp({ auth, conversation, activities, settings, person
       if (!parsed.success) return reply.code(400).send({ message: "请输入有效的电子邮箱和密码。" });
       const session = await auth.signIn(parsed.data.email, parsed.data.password);
       if (!session) return reply.code(401).send({ message: "电子邮箱或密码不正确。" });
-      reply.setCookie(sessionCookie, session.token, {
-        path: "/", httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production",
-        maxAge: sessionLifetimeSeconds,
-      });
+      setSessionCookie(reply, session.token);
       return { user: session.user };
     });
+
+    registerSignUp(api, accounts.pool, accounts.registration);
 
     api.post("/logout", async (request, reply) => {
       await auth.signOut(request.cookies[sessionCookie]);
@@ -83,6 +84,7 @@ export function createHttpApp({ auth, conversation, activities, settings, person
       registerPersonalMemories(authenticated, personalMemories);
       registerLearningRecord(authenticated, learning);
       registerMaterialLibrary(authenticated, materials);
+      registerAccountCommands(authenticated, accounts.pool);
     });
   }, { prefix: "/api" });
 

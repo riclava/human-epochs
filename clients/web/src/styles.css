@@ -179,7 +179,8 @@ button:disabled { cursor: not-allowed; }
 .conversation-list-error button { margin-top: var(--space-1); }
 .sidebar-account { margin-top: auto; border-top: 1px solid var(--color-border); padding: var(--space-3) var(--space-1); display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-small); }
 .avatar { width: 1.85rem; aspect-ratio: 1; display: grid; place-items: center; background: var(--color-accent-soft); border-radius: 50%; color: var(--color-accent); font-weight: 650; }
-.sidebar-account > span:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sidebar-account .account-link { flex: 1; min-width: 0; min-height: var(--control-height); display: flex; align-items: center; padding-inline: var(--space-1); border-radius: var(--radius-control); color: var(--color-ink); text-decoration: none; overflow-wrap: anywhere; }
+.sidebar-account .account-link:hover, .sidebar-account .account-link[aria-current="page"] { background: var(--color-accent-soft); color: var(--color-accent); }
 .sidebar-account button { min-width: var(--control-height); padding: var(--space-2); background: transparent; border-color: transparent; color: var(--color-muted); }
 .sidebar-account button:enabled:hover { background: var(--color-accent-soft); color: var(--color-accent); border-color: transparent; }
 .conversation-pane {
@@ -497,3 +498,9 @@ button:disabled { cursor: not-allowed; }
   .conversation-body.has-history { display: block; overflow: visible; }
   .has-history .conversation-reading { overflow: visible; }
 }
+
+.login-switch { margin: var(--space-4) 0 0; color: var(--color-muted); font-size: var(--text-small); }
+.link-button { display: inline; width: auto; min-height: 0; margin: 0; padding: var(--space-1); border: 0; background: none;
+  color: var(--color-accent); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; }
+.link-button:hover { color: var(--color-accent-hover); background: none; }
+.field-hint { margin: var(--space-1) 0 0; color: var(--color-muted); font-size: var(--text-caption); }
