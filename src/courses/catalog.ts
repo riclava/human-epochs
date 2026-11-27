@@ -1,9 +1,9 @@
-import type { CourseContent } from "../contracts/activity-types.js";
-import type { ChatMaterialOption } from "../contracts/chat.js";
+import type { CourseContent } from "../contracts/course-content.js";
+import type { ConversationMaterialOption } from "../contracts/conversation.js";
 
-export interface PublishedDiscussion extends ChatMaterialOption {
+export interface PublishedDiscussion extends ConversationMaterialOption {
   readings?: { text: string; sourceIds: string[] }[];
-  practiceVersion?: string;
+  practiceCourseVersion?: string;
 }
 
 const memoirContent = {
@@ -31,7 +31,7 @@ export const publishedCourses = [memoirCourse];
 
 export const publishedDiscussions: PublishedDiscussion[] = [
   {
-    version: "ferry-notes.v1", title: "渡口的冬日见闻",
+    discussionVersion: "ferry-notes.v1", title: "渡口的冬日见闻",
     question: "根据这段回忆，可以确定作者亲眼见过渡口停航吗？",
     sources: [{ id: "ferry-memory", label: "回忆录摘录（教学虚构）", text: "姨母常说，那年的渡口一入冬便停航。" }],
     supplements: [{ id: "ferry-diary", label: "补充日记（教学虚构）", text: "我翻出自己的日记，腊月初八写着：我到渡口时，船还在载客。" }],
@@ -39,6 +39,6 @@ export const publishedDiscussions: PublishedDiscussion[] = [
       { text: "作者转述了姨母的说法。作者是否亲自到过渡口，这段回忆没有交代。", sourceIds: ["ferry-memory"] },
       { text: "日记记下了作者腊月初八到过渡口的亲历。那天船仍在载客，因此姨母关于整个冬天的说法需要核实。其他日期的航行情况仍未知。", sourceIds: ["ferry-memory", "ferry-diary"] },
     ],
-    practiceVersion: memoirCourse.version,
+    practiceCourseVersion: memoirCourse.version,
   },
 ];

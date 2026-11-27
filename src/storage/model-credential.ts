@@ -4,7 +4,7 @@ export function createModelCredentialCipher(encodedKey: string | undefined) {
   if (!encodedKey) return null;
   const key = Buffer.from(encodedKey, "base64");
   if (key.length !== 32 || key.toString("base64") !== encodedKey) {
-    throw new Error("STUDY_AGENT_SETTINGS_KEY must be 32 bytes encoded as base64");
+    throw new Error("MODEL_CREDENTIAL_ENCRYPTION_KEY must be 32 bytes encoded as base64");
   }
   return {
     seal(secret: string, baseUrl: string) {

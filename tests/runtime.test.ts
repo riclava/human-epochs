@@ -1,30 +1,30 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { publishedDiscussions } from "../src/curriculum/catalog.js";
+import { publishedDiscussions } from "../src/courses/catalog.js";
 import { createChatCompletionsModel } from "../src/models/chat-completions.js";
 import type { ObserveRun } from "../src/runtime/diagnostics.js";
-import type { MaterialPrompt, ModelMessage, StudyMessage } from "../src/runtime/model.js";
+import type { MaterialPrompt, ModelMessage, ConversationMessage } from "../src/runtime/model.js";
 import { createTurnRunner, type TurnContext } from "../src/runtime/run-turn.js";
-import { chatContentText } from "../src/contracts/chat.js";
-import { chatCitations, modelChunk } from "./fixtures/chat-stream.js";
+import { conversationContentText } from "../src/contracts/conversation.js";
+import { conversationCitations, modelChunk } from "./fixtures/conversation-stream.js";
 
 const deadline = () => new Date(Date.now() + 90_000);
 const done = "data: [DONE]\n\n";
 const eventResponse = (body: BodyInit) => new Response(body, { headers: { "Content-Type": "text/event-stream" } });
 
-test("local guidance uses the learner's goal and follows a change of subject", async () => {
+test("local guidance uses the user's goal and follows a change of subject", async () => {
   const model = createChatCompletionsModel({
     env: {},
     fetchImpl: async () => { throw new Error("Local guidance must work offline"); },
   });
   assert.equal(model, null);
   const runner = createTurnRunner(model);
-  const history: StudyMessage[] = [];
+  const history: ConversationMessage[] = [];
   async function ask(content: string) {
     history.push({ role: "user", content });
     const result = await runner.runTurn({ kind: "conversation", history }, deadline());
     assert.equal(result.kind, "complete");
-    const reply = chatContentText(result.output.content)!;
+    const reply = conversationContentText(result.output.replyBlocks)!;
     history.push({ role: "assistant", content: reply });
     return reply;
   }
@@ -43,11 +43,11 @@ test("local guidance uses the learner's goal and follows a change of subject", a
 
 test("configured chat completions include only the prompt and ordered conversation", async () => {
   const env = {
-    STUDY_AGENT_API_KEY: "test-credential",
-    STUDY_AGENT_BASE_URL: "https://model.example.test/v1/",
-    STUDY_AGENT_MODEL: "test-model",
+    MODEL_API_KEY: "test-credential",
+    MODEL_BASE_URL: "https://model.example.test/v1/",
+    MODEL_ID: "test-model",
   };
-  const history: StudyMessage[] = [
+  const history: ConversationMessage[] = [
     { role: "user", content: "我想学天文" },
     { role: "assistant", content: "你想独立做哪件事？" },
     { role: "user", content: "想认出冬季的星座" },
@@ -59,7 +59,7 @@ test("configured chat completions include only the prompt and ordered conversati
       assert.equal(options?.method, "POST");
       assert.equal(new Headers(options.headers).get("authorization"), "Bearer test-credential");
       const body = JSON.parse(String(options.body));
-      assert.equal(body.model, env.STUDY_AGENT_MODEL);
+      assert.equal(body.model, env.MODEL_ID);
       assert.equal(body.stream, true);
       assert.equal(body.messages[0].role, "system");
       assert.deepEqual(body.messages.slice(1), history);
@@ -81,13 +81,13 @@ test("configured chat completions include only the prompt and ordered conversati
     onTextDelta: text => deltas.push(text), observe: event => events.push(event),
   });
   assert.deepEqual(deltas, ["  先从一张冬季星图", "开始。 "]);
-  assert.deepEqual(result, { kind: "complete", output: { content: [{ kind: "text", text: "先从一张冬季星图开始。" }] } });
+  assert.deepEqual(result, { kind: "complete", output: { replyBlocks: [{ kind: "text", text: "先从一张冬季星图开始。" }] } });
   assert.deepEqual(events.map(event => event.event === "model" && event.usage), [{ inputTokens: 42, outputTokens: 12 }]);
 });
 
 test("model failures and incomplete completions remain retryable failures", async () => {
-  const env = { STUDY_AGENT_API_KEY: "test-credential" };
-  const history: StudyMessage[] = [{ role: "user", content: "我想学习西班牙语" }];
+  const env = { MODEL_API_KEY: "test-credential" };
+  const history: ConversationMessage[] = [{ role: "user", content: "我想学习西班牙语" }];
   for (const [response, outcome] of [
     [new Response(null, { status: 429 }), "rate_limited"],
     [new Response(null, { status: 503 }), "http_error"],
@@ -109,12 +109,12 @@ test("model failures and incomplete completions remain retryable failures", asyn
 });
 
 test("model input trims older history as whole turns and keeps the current question", async () => {
-  const prior = Array.from({ length: 4 }, (_, index): StudyMessage[] => [
+  const prior = Array.from({ length: 4 }, (_, index): ConversationMessage[] => [
     { role: "user", content: String(index).repeat(4_000) },
     { role: "assistant", content: "a".repeat(4_000) },
   ]).flat();
   const question = "怎么把前面几条线索串起来？";
-  const history: StudyMessage[] = [...prior, { role: "user", content: question }];
+  const history: ConversationMessage[] = [...prior, { role: "user", content: question }];
   const source = { id: "log", label: "记录", text: "数据在周一录入。" };
   const modelHistories: unknown[] = [];
   const runner = createTurnRunner(async ({ messages, format }) => {
@@ -125,7 +125,7 @@ test("model input trims older history as whole turns and keeps the current quest
     modelHistories.push(JSON.parse(messages[0].content!).history);
     return {
       kind: "text",
-      text: JSON.stringify({ blocks: [{ kind: "text", text: "可以从录入日期开始。", citations: [{ id: source.id, quote: source.text }] }] }),
+      text: JSON.stringify({ blocks: [{ kind: "text", text: "可以从录入日期开始。", citations: [{ sourceId: source.id, quote: source.text }] }] }),
     };
   });
 
@@ -135,14 +135,14 @@ test("model input trims older history as whole turns and keeps the current quest
   assert.equal(history.length, 9);
   assert.equal(conversation.kind, "complete");
   assert.equal(material.kind, "complete");
-  assert.equal(material.output.explanationMode, "model");
+  assert.equal(material.output.explanationSource, "model");
 });
 
 test("source explanations use the current question and selected evidence, and offline readings yield to unfamiliar evidence", async () => {
   const [publication] = publishedDiscussions;
   const source = publication.sources[0];
   const question = "姨母说渡口什么时候停航？";
-  const history: StudyMessage[] = [{ role: "user", content: publication.question }, { role: "user", content: question }];
+  const history: ConversationMessage[] = [{ role: "user", content: publication.question }, { role: "user", content: question }];
   const prompt = { question, sources: [source], history };
   const online = createTurnRunner(async ({ format, messages }) => {
     assert.equal(format, "json");
@@ -152,16 +152,16 @@ test("source explanations use the current question and selected evidence, and of
     return {
       kind: "text",
       text: JSON.stringify({ blocks: [
-        { kind: "excerpt", source: { id: source.id, quote: source.text } },
-        { kind: "text", text: "姨母说渡口一入冬便停航。", citations: [{ id: source.id, quote: source.text }] },
+        { kind: "excerpt", source: { sourceId: source.id, quote: source.text } },
+        { kind: "text", text: "姨母说渡口一入冬便停航。", citations: [{ sourceId: source.id, quote: source.text }] },
       ] }),
     };
   });
   const explanation = await online.runTurn({ kind: "material", publication, prompt }, deadline());
   assert.equal(explanation.kind, "complete");
-  assert.equal(explanation.output.explanationMode, "model");
-  assert.deepEqual(explanation.output.content.map(block => block.kind), ["excerpt", "text"]);
-  assert.equal(chatCitations(explanation.output.content)[0]?.label, source.label);
+  assert.equal(explanation.output.explanationSource, "model");
+  assert.deepEqual(explanation.output.replyBlocks.map(block => block.kind), ["excerpt", "text"]);
+  assert.equal(conversationCitations(explanation.output.replyBlocks)[0]?.label, source.label);
 
   const correction = { id: "excerpt:correction", label: "更正记录", text: "更正记录：日记的日期写错了，尚不能确定船在什么时候运行。" };
   const followUp = "有了更正记录，现在可以确定什么？";
@@ -172,9 +172,9 @@ test("source explanations use the current question and selected evidence, and of
     },
   }, deadline());
   assert.equal(fallback.kind, "complete");
-  assert.equal(fallback.output.explanationMode, "excerpt");
-  assert.ok(chatCitations(fallback.output.content).some(citation => citation.id === correction.id));
-  assert.ok(publication.readings?.every(reading => !chatContentText(fallback.output.content)!.includes(reading.text)));
+  assert.equal(fallback.output.explanationSource, "excerpt");
+  assert.ok(conversationCitations(fallback.output.replyBlocks).some(citation => citation.sourceId === correction.id));
+  assert.ok(publication.readings?.every(reading => !conversationContentText(fallback.output.replyBlocks)!.includes(reading.text)));
 });
 
 test("the model loop pairs tool errors with their calls and accepts citations only from material read by the model", async () => {
@@ -199,7 +199,7 @@ test("the model loop pairs tool errors with their calls and accepts citations on
     toolMessages = messages;
     return {
       kind: "text",
-      text: JSON.stringify({ blocks: [{ kind: "text", text: "模型给出的归档结论。", citations: [{ id: unread.id, quote: unread.text }] }] }),
+      text: JSON.stringify({ blocks: [{ kind: "text", text: "模型给出的归档结论。", citations: [{ sourceId: unread.id, quote: unread.text }] }] }),
     };
   });
 
@@ -217,8 +217,8 @@ test("the model loop pairs tool errors with their calls and accepts citations on
   }
   assert.deepEqual(background, { role: "tool", toolCallId: "background", content: JSON.stringify(first) });
   assert.equal(result.kind, "complete");
-  assert.equal(result.output.explanationMode, "excerpt");
-  assert.notEqual(chatContentText(result.output.content), "模型给出的归档结论。");
+  assert.equal(result.output.explanationSource, "excerpt");
+  assert.notEqual(conversationContentText(result.output.replyBlocks), "模型给出的归档结论。");
   assert.deepEqual(progress, ["reading_sources", "checking_citations"]);
   assert.deepEqual(events.filter(event => event.event === "tool").map(event => [event.toolCallId, event.outcome]), [
     ["unknown", "unknown_tool"], ["invalid", "invalid_input"], ["outside", "denied"], ["background", "returned"],
@@ -244,7 +244,7 @@ test("long material execution reserves a final reply and stops at the model or t
     const result = await runner.runTurn({ kind: "material", prompt }, deadline());
     assert.deepEqual(choices, [...Array(expectedCalls - 1).fill(undefined), "none"]);
     assert.equal(result.kind, "complete");
-    assert.equal(result.output.explanationMode, "excerpt");
+    assert.equal(result.output.explanationSource, "excerpt");
   }
 });
 

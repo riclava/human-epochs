@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import type { Pool } from 'pg'
 import { processNextSummary } from './summaries.js'
 
-export function attachSummaryWorker(app: FastifyInstance, pool: Pool, config: Parameters<typeof processNextSummary>[1]) {
+export function attachConversationSummaryWorker(app: FastifyInstance, pool: Pool, config: Parameters<typeof processNextSummary>[1]) {
   const controller = new AbortController()
   let timer: ReturnType<typeof setInterval>
   let running: Promise<unknown> | undefined

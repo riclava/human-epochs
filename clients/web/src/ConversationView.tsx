@@ -1,0 +1,177 @@
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
+import { conversationTextLimit } from '../../../src/contracts/conversation'
+import type { ConversationProgress, ConversationSnapshot, ConversationTurn, ReviewInvitationCommand, SendConversationCommand } from '../../../src/contracts/conversation'
+import type { PersonalMemory } from '../../../src/contracts/personal-memory'
+import { ConversationTurnMessage } from './ConversationTurnMessage'
+import { PersonalMemorySection } from './PersonalMemorySection'
+import { ReviewInvitationCard } from './ReviewInvitationCard'
+import { useConversationSession } from './useConversationSession'
+import type { WorkspacePageProps } from './workspace-pages'
+
+const progressText: Record<ConversationProgress, string> = {
+  reading_sources: '正在读取原文…', checking_citations: '正在核对引文…',
+}
+
+function ReplyStatus({ status, progress, retry, canSend }: {
+  status: ConversationTurn['status']
+  progress?: ConversationProgress
+  retry: () => void
+  canSend: boolean
+}) {
+  if (status === 'complete') return null
+  const messages = {
+    pending: progress ? progressText[progress] : '正在准备回复…',
+    retryable: '这条消息已保存，回复未完成。',
+    failed: '这条消息已保存，回复未完成。你可以继续发送消息。',
+    stopped: '已停止回复。你可以继续发送消息。',
+  }
+  return <div className="turn-status">
+    <span>{messages[status]}</span>
+    {status === 'retryable' && <button type="button" disabled={!canSend} onClick={retry}>重试回复</button>}
+  </div>
+}
+
+export function ConversationView({ userId, onUnauthorized, heading }: WorkspacePageProps) {
+  const conversation = useConversationSession(userId, onUnauthorized)
+  const { snapshot, draft, latest, items, busy, canSend, activeId, controls, hasHistory, loadError, sendError, stopError } = conversation
+  const [reviewStatus, setReviewStatus] = useState('')
+  const [dismissedReviewInvitation, setDismissedReviewInvitation] = useState<string>()
+  const [invalid, setInvalid] = useState(false)
+  const field = useRef<HTMLTextAreaElement>(null)
+  const scrollPane = useRef<HTMLElement>(null)
+  const followLatest = useRef(true)
+
+  const reviewInvitation = !loadError && snapshot?.reviewInvitation?.reviewInvitationId !== dismissedReviewInvitation
+    ? snapshot?.reviewInvitation : undefined
+  const activeReviewInvitationId = latest?.kind === 'review_question' ? latest.reviewInvitationId : undefined
+  const memoriesBySource = useMemo(() => {
+    const groups = new Map<string | null, PersonalMemory[]>()
+    for (const record of snapshot?.memories ?? []) {
+      const group = groups.get(record.sourceRequestId)
+      if (group) group.push(record)
+      else groups.set(record.sourceRequestId, [record])
+    }
+    return groups
+  }, [snapshot?.memories])
+  const memoryActions = { userId, onUnauthorized, onSaved: conversation.memorySaved, onReload: conversation.refresh }
+
+  useLayoutEffect(() => {
+    const pane = scrollPane.current
+    if (pane && followLatest.current) pane.scrollTop = pane.scrollHeight
+  }, [latest?.requestId, latest?.status, activeId, conversation.scrollPreview, reviewInvitation?.reviewInvitationId])
+
+  function send(message: SendConversationCommand) {
+    if (!canSend) return
+    setReviewStatus('')
+    if (reviewInvitation) setDismissedReviewInvitation(reviewInvitation.reviewInvitationId)
+    followLatest.current = true
+    field.current?.focus()
+    void conversation.send(message)
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!canSend) return
+    const messageText = draft.messageText.trim()
+    if (!messageText) {
+      setInvalid(true)
+      field.current?.focus()
+      return
+    }
+    const reviewInvitationId = draft.requestId ? draft.reviewInvitationId : activeReviewInvitationId
+    const message = { ...draft, requestId: draft.requestId ?? crypto.randomUUID(), messageText, reviewInvitationId }
+    conversation.saveDraft(message)
+    send(message)
+  }
+
+  function finishReview(data: ConversationSnapshot, action: ReviewInvitationCommand['action'], restoreFocus: boolean) {
+    if (action === 'accept') followLatest.current = true
+    conversation.acceptSnapshot(data)
+    setReviewStatus(action === 'later' ? '一天后再提醒你。' : action === 'stop' ? '已停止主动复习提醒。' : '')
+    if (restoreFocus) field.current?.focus()
+  }
+
+  function startMaterial(starter: NonNullable<ConversationSnapshot['starter']>) {
+    if (!canSend) return
+    const message = { requestId: crypto.randomUUID(), messageText: starter.question, materialSelection: { discussionVersion: starter.discussionVersion } }
+    conversation.saveDraft(message)
+    send(message)
+  }
+
+  return (
+    <>
+      <header className="conversation-header">
+        <h1 id={heading.id}>{heading.text}</h1>
+        {snapshot && <span className="conversation-mode">{snapshot.mode === 'guided' ? '本地引导' : '在线模型'}</span>}
+      </header>
+      <div className={hasHistory ? 'conversation-body has-history' : 'conversation-body'}>
+        <section className="conversation-reading" ref={scrollPane} tabIndex={hasHistory ? 0 : undefined}
+          aria-label="对话内容" onScroll={event => {
+            const pane = event.currentTarget
+            followLatest.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 40
+          }}>
+          <div className="conversation-column">
+            {!hasHistory && (
+              <div className="conversation-welcome">
+                <h2>从一个问题开始</h2>
+                <p>{snapshot?.mode === 'guided' ? '说说你想弄懂什么，一起理清目标和第一步。' : '可以直接提问，也可以贴一段原文来讨论。'}</p>
+                {snapshot?.starter && !draft.messageText && <button className="conversation-starter" type="button" disabled={!canSend}
+                  onClick={() => startMaterial(snapshot.starter!)}>聊聊《{snapshot.starter.title}》</button>}
+              </div>
+            )}
+            <PersonalMemorySection {...memoryActions} memories={memoriesBySource.get(null) ?? []} />
+            <div className="conversation-log" role="log" aria-label="对话记录" aria-relevant="additions text">
+              {items.map(({ turn, status, preview, progress }) => <ConversationTurnMessage key={turn.requestId} turn={turn}
+                memory={turn.status === 'complete' && turn.kind === 'user' && <PersonalMemorySection {...memoryActions}
+                  source={turn} memories={memoriesBySource.get(turn.requestId) ?? []} />}
+                preview={preview} status={turn.kind === 'user' && <ReplyStatus status={status} progress={progress} canSend={canSend}
+                  retry={() => send({ requestId: turn.requestId, messageText: turn.messageText })} />} />)}
+            </div>
+          </div>
+        </section>
+        <div className="conversation-compose-wrap conversation-column">
+          {loadError && <div className="notice notice-error">
+            <p role="alert">暂时无法读取对话。请检查网络连接后重试。</p>
+            <button type="button" onClick={conversation.refresh}>重新读取对话</button>
+          </div>}
+          {reviewInvitation && <ReviewInvitationCard key={reviewInvitation.reviewInvitationId} invitation={reviewInvitation} userId={userId} disabled={busy}
+            onUnauthorized={onUnauthorized} onResult={finishReview} onStale={restoreFocus => {
+              setDismissedReviewInvitation(reviewInvitation.reviewInvitationId)
+              setReviewStatus('复习邀请已更新。')
+              conversation.refresh()
+              if (restoreFocus) field.current?.focus()
+            }} />}
+          <p className="review-status" role="status">{reviewStatus}</p>
+          <form className="conversation-composer" onSubmit={submit}>
+            <label htmlFor="conversation-message" className="sr-only">对话消息</label>
+            <textarea ref={field} id="conversation-message" rows={2} maxLength={conversationTextLimit}
+              value={activeId && draft.requestId === activeId ? '' : draft.messageText}
+              placeholder={activeReviewInvitationId ? '说说你的答案…' : hasHistory ? '继续聊聊你的想法…' : '比如，我想学会看懂一张星图'}
+              aria-invalid={invalid || undefined} aria-describedby={sendError || invalid ? 'conversation-send-error' : 'conversation-send-help'}
+              readOnly={!!activeId} onChange={event => {
+                conversation.saveDraft({ messageText: event.target.value })
+                conversation.clearSendError()
+                setInvalid(false)
+              }} onKeyDown={event => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }} />
+            <div className="conversation-toolbar">
+              <span id="conversation-send-help">{!snapshot && !loadError ? '正在读取对话…' : busy ? '这条消息结束后可以继续发送。' : 'Enter 发送 · Shift + Enter 换行'}</span>
+              {controls.kind === 'stop' ? <button type="button" disabled={controls.disabled} onClick={() => {
+                field.current?.focus()
+                void conversation.stop(controls.requestId)
+              }}>{controls.disabled ? '正在停止…' : '停止回复'}</button>
+                : <button type="submit" disabled={controls.disabled} aria-label="发送消息">发送<span aria-hidden="true">↑</span></button>}
+            </div>
+          </form>
+          {stopError && <p role="alert" className="form-error">{stopError}</p>}
+          {(sendError || invalid) && <p id="conversation-send-error" role="alert" className="form-error">{invalid ? '写下一条消息再发送。' : sendError}</p>}
+        </div>
+      </div>
+    </>
+  )
+}

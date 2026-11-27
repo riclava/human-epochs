@@ -1,15 +1,16 @@
 import type { Pool } from "pg";
 import { z } from "zod";
 import {
-  agentSettingLimits, agentSettingsSchema, deepSeekBaseUrl, defaultAgentSettings, modelEndpointSchema, settingsAdviceSchema,
-  type AgentSettingsView, type ModelEndpoint, type SaveAgentSettingsRequest, type SettingsAdviceRequest,
+  agentSettingLimits, agentSettingsSchema, deepSeekBaseUrl, defaultAgentSettings, modelConnectionTargetSchema, settingsAdviceSchema,
+  type AgentSettingsView, type ModelConnectionTarget, type SaveAgentSettingsRequest, type SettingsAdviceRequest,
 } from "../contracts/agent-settings.js";
 import type { createModelProvider } from "../models/connections.js";
-import type { StudyModel } from "../runtime/model.js";
+import type { ModelClient } from "../runtime/model.js";
 import type { createModelCredentialCipher } from "../storage/model-credential.js";
 
-const storedSchema = z.object({ ...agentSettingsSchema.shape, endpoint: modelEndpointSchema.optional(), sealedApiKey: z.string().optional() });
-const defaultEndpoint = { baseUrl: deepSeekBaseUrl, modelId: "deepseek-flash" };
+const storedConnectionSchema = modelConnectionTargetSchema.extend({ sealedApiKey: z.string().optional() });
+const storedSchema = z.strictObject({ settings: agentSettingsSchema, connection: storedConnectionSchema.optional() });
+const defaultConnection = { baseUrl: deepSeekBaseUrl, modelId: "deepseek-flash" };
 type Stored = z.infer<typeof storedSchema>;
 
 export interface ModelOptions {
@@ -17,25 +18,29 @@ export interface ModelOptions {
   cipher: ReturnType<typeof createModelCredentialCipher>;
 }
 
-export function createAgentSettingsService(pool: Pool, injectedModel: StudyModel | null, options?: ModelOptions) {
+export function createAgentSettingsService(pool: Pool, injectedModel: ModelClient | null, options?: ModelOptions) {
   const provider = options?.provider;
-  const fallback = provider?.defaults ?? defaultEndpoint;
+  const fallback: z.infer<typeof storedConnectionSchema> = provider?.defaults ?? defaultConnection;
   const defaultOutputTokens = (baseUrl: string) => provider?.defaultOutputTokens(baseUrl) ?? defaultAgentSettings.maxOutputTokens;
   const defaults = { ...defaultAgentSettings, maxOutputTokens: defaultOutputTokens(fallback.baseUrl) };
 
   async function read(): Promise<{ revision: number; stored: Stored }> {
-    const { rows: [row] } = await pool.query<{ revision: number; settings: unknown }>("SELECT revision, settings FROM agent_settings WHERE singleton");
-    return row ? { revision: row.revision, stored: storedSchema.parse(row.settings) } : { revision: 0, stored: defaults };
+    const { rows: [row] } = await pool.query<{ revision: number; settings: unknown; connection: unknown }>(
+      "SELECT revision, settings, connection FROM agent_settings WHERE singleton",
+    );
+    return row ? { revision: row.revision, stored: storedSchema.parse({ settings: row.settings, connection: row.connection ?? undefined }) }
+      : { revision: 0, stored: { settings: defaults } };
   }
 
-  function deploymentKey(endpoint: ModelEndpoint) {
-    return endpoint.baseUrl === fallback.baseUrl ? provider?.defaultKey : undefined;
+  function deploymentKey(target: ModelConnectionTarget) {
+    return target.baseUrl === fallback.baseUrl ? provider?.defaultKey : undefined;
   }
 
-  function viewOf(revision: number, { endpoint = fallback, sealedApiKey, ...settings }: Stored): AgentSettingsView {
-    const hasApiKey = Boolean(sealedApiKey || deploymentKey(endpoint));
-    return { revision, settings, connection: { ...endpoint, hasApiKey }, defaultOutputTokens: defaultOutputTokens(endpoint.baseUrl),
-      assistantAvailable: Boolean(injectedModel || hasApiKey) };
+  function viewOf(revision: number, { connection = fallback, settings }: Stored): AgentSettingsView {
+    const { baseUrl, modelId, sealedApiKey } = connection;
+    const hasApiKey = Boolean(sealedApiKey || deploymentKey(connection));
+    return { revision, settings, connection: { baseUrl, modelId, hasApiKey }, defaultOutputTokens: defaultOutputTokens(baseUrl),
+      onlineModelAvailable: Boolean(injectedModel || hasApiKey) };
   }
 
   async function view() {
@@ -43,46 +48,49 @@ export function createAgentSettingsService(pool: Pool, injectedModel: StudyModel
     return viewOf(revision, stored);
   }
 
-  function resolveModel({ endpoint = fallback, sealedApiKey }: Stored) {
+  function resolveModel({ connection = fallback }: Stored) {
     if (injectedModel || !provider) return injectedModel;
+    const { sealedApiKey, ...target } = connection;
     if (sealedApiKey) {
       const cipher = options?.cipher;
       if (!cipher) throw new Error("The model credential encryption key is unavailable");
-      return provider.connect(endpoint, cipher.open(sealedApiKey, endpoint.baseUrl));
+      return provider.connect(target, cipher.open(sealedApiKey, target.baseUrl));
     }
-    const key = deploymentKey(endpoint);
-    return key ? provider.connect(endpoint, key) : null;
+    const key = deploymentKey(target);
+    return key ? provider.connect(target, key) : null;
   }
 
   async function execution() {
-    const { revision, stored } = await read();
-    return { model: resolveModel(stored), settings: viewOf(revision, stored).settings };
+    const { stored } = await read();
+    return { model: resolveModel(stored), settings: stored.settings };
   }
 
-  async function save({ revision, settings, connection }: SaveAgentSettingsRequest) {
+  async function save({ expectedRevision, settings, connection }: SaveAgentSettingsRequest) {
     const current = await read();
-    if (current.revision !== revision) return { kind: "conflict" } as const;
+    if (current.revision !== expectedRevision) return { kind: "conflict" } as const;
 
-    let { endpoint, sealedApiKey } = current.stored;
+    let storedConnection = current.stored.connection;
     if (connection) {
       const { apiKey, ...next } = connection;
-      const changedAddress = next.baseUrl !== (endpoint ?? fallback).baseUrl;
+      const changedAddress = next.baseUrl !== (storedConnection ?? fallback).baseUrl;
+      let sealedApiKey = storedConnection?.sealedApiKey;
       if (!provider?.allows(next.baseUrl)) return { kind: "invalid_endpoint" } as const;
       if (!apiKey && (changedAddress || !sealedApiKey && !deploymentKey(next))) return { kind: "key_required" } as const;
-      endpoint = next;
       if (apiKey) {
         const cipher = options?.cipher;
         if (!cipher) return { kind: "storage_unavailable" } as const;
         sealedApiKey = cipher.seal(apiKey, next.baseUrl);
       }
+      storedConnection = { ...next, sealedApiKey };
     }
 
-    const stored = { ...settings, endpoint, sealedApiKey };
-    const result = revision === 0
-      ? await pool.query(`INSERT INTO agent_settings (revision, settings) VALUES (1, $1)
-          ON CONFLICT DO NOTHING RETURNING revision`, [stored])
-      : await pool.query(`UPDATE agent_settings SET revision = revision + 1, settings = $1
-          WHERE singleton AND revision = $2 RETURNING revision`, [stored, revision]);
+    const stored = { settings, connection: storedConnection };
+    const values = [settings, storedConnection ?? null];
+    const result = expectedRevision === 0
+      ? await pool.query(`INSERT INTO agent_settings (revision, settings, connection) VALUES (1, $1, $2)
+          ON CONFLICT DO NOTHING RETURNING revision`, values)
+      : await pool.query(`UPDATE agent_settings SET revision = revision + 1, settings = $1, connection = $2
+          WHERE singleton AND revision = $3 RETURNING revision`, [...values, expectedRevision]);
     if (!result.rowCount) return { kind: "conflict" } as const;
     return { kind: "saved", view: viewOf(result.rows[0].revision, stored) } as const;
   }

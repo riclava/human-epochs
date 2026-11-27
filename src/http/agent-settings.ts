@@ -5,7 +5,7 @@ import { saveAgentSettingsRequestSchema, settingsAdviceRequestSchema } from "../
 export function registerAgentSettings(api: FastifyInstance, settings: ReturnType<typeof createAgentSettingsService>) {
   api.register(async admin => {
     admin.addHook("onRequest", async (request, reply) => {
-      if (!request.learner?.canManageAgentSettings) {
+      if (!request.user?.canManageAgentSettings) {
         return reply.code(403).send({ message: "当前账号没有管理运行设置的权限。" });
       }
     });

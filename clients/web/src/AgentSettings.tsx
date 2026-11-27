@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { agentSettingLimits, agentSettingsViewSchema, deepSeekContextTokens, defaultAgentSettings, isDeepSeekEndpoint,
-  modelBaseUrlSchema, saveAgentSettingsRequestSchema, saveAgentSettingsSchema } from '../../../src/contracts/agent-settings'
+import { agentSettingLimits, agentSettingsSchema, agentSettingsViewSchema, deepSeekContextTokens, defaultAgentSettings,
+  isDeepSeekEndpoint, modelBaseUrlSchema, saveAgentSettingsRequestSchema } from '../../../src/contracts/agent-settings'
 import type { AgentSettingsView, SettingsAdvice } from '../../../src/contracts/agent-settings'
 import { HttpError, request } from './api'
 import { SettingsAssistant } from './SettingsAssistant'
+import type { WorkspacePageProps } from './workspace-pages'
 
 type Key = keyof typeof agentSettingLimits
 type ConnectionField = 'baseUrl' | 'modelId' | 'apiKey'
@@ -23,7 +24,7 @@ const groups: { id: string; title: string; description: string; fields: Field[] 
     id: 'context', title: '上下文与材料', description: '控制发送给模型的历史和原文。',
     fields: [
       { key: 'historyBytes', label: '历史预算', unit: '字节', description: '按较早的完整问答裁剪，保留当前问题。' },
-      { key: 'inlineSourceChars', label: '原文直传阈值', unit: '字符', description: '超过阈值时先提供目录，由模型按需读取。' },
+      { key: 'inlineSourceChars', label: '原文直传阈值', unit: '字符', description: '超过阈值时，先提供来源目录，再由模型按需读取原文。' },
     ],
   },
   {
@@ -38,9 +39,9 @@ const groups: { id: string; title: string; description: string; fields: Field[] 
 const fields = groups.flatMap(group => group.fields)
 const formatNumber = new Intl.NumberFormat('zh-CN')
 
-function SettingsForm({ initial, learnerId, onUnauthorized, onReload }: {
+function SettingsForm({ initial, userId, onUnauthorized, onReload }: {
   initial: AgentSettingsView
-  learnerId: string
+  userId: string
   onUnauthorized: () => void
   onReload: () => void
 }) {
@@ -68,7 +69,7 @@ function SettingsForm({ initial, learnerId, onUnauthorized, onReload }: {
 
   function parseDraft() {
     const entries = fields.map(({ key }) => [key, value(key) === '' ? NaN : Number(value(key))])
-    return saveAgentSettingsSchema.safeParse({ revision: saved.revision, settings: Object.fromEntries(entries) })
+    return agentSettingsSchema.safeParse(Object.fromEntries(entries))
   }
 
   function showConnectionError(field: ConnectionField, message = connectionErrors[field]) {
@@ -87,13 +88,13 @@ function SettingsForm({ initial, learnerId, onUnauthorized, onReload }: {
     if (!dirty || activeSave.current || status === 'conflict') return
     const numeric = parseDraft()
     if (!numeric.success) {
-      const errors = new Set(numeric.error.issues.map(issue => issue.path[1] as Key))
+      const errors = new Set(numeric.error.issues.map(issue => issue.path[0] as Key))
       setInvalid(errors)
       const first = fields.find(({ key }) => errors.has(key))
       if (first) document.getElementById(first.key)?.focus()
       return
     }
-    const parsed = saveAgentSettingsRequestSchema.safeParse({ ...numeric.data, connection: connectionChanged ? {
+    const parsed = saveAgentSettingsRequestSchema.safeParse({ expectedRevision: saved.revision, settings: numeric.data, connection: connectionChanged ? {
       baseUrl, modelId, ...(apiKey.trim() ? { apiKey } : {}),
     } : undefined })
     if (!parsed.success) {
@@ -107,7 +108,7 @@ function SettingsForm({ initial, learnerId, onUnauthorized, onReload }: {
     try {
       const response = await request('/agent-settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-Learner-Id': learnerId },
+        headers: { 'Content-Type': 'application/json', 'X-User-Id': userId },
         body: JSON.stringify(parsed.data), signal: controller.signal,
       })
       const snapshot = agentSettingsViewSchema.parse(await response.json())
@@ -161,7 +162,7 @@ function SettingsForm({ initial, learnerId, onUnauthorized, onReload }: {
 
   return (
     <>
-    <SettingsAssistant available={saved.assistantAvailable} learnerId={learnerId} getDraft={() => parseDraft().data?.settings}
+    <SettingsAssistant onlineModelAvailable={saved.onlineModelAvailable} userId={userId} getDraft={() => parseDraft().data}
       describe={describe} apply={apply} onUnauthorized={onUnauthorized} locked={locked} />
     <form className="settings-form" onSubmit={save} noValidate aria-busy={saving}>
       <section className="settings-section" aria-labelledby="model-connection-heading">
@@ -256,24 +257,24 @@ function SettingsForm({ initial, learnerId, onUnauthorized, onReload }: {
   )
 }
 
-export function AgentSettings({ learnerId, onUnauthorized }: { learnerId: string; onUnauthorized: () => void }) {
+export function AgentSettings({ userId, onUnauthorized, heading }: WorkspacePageProps) {
   const [snapshot, setSnapshot] = useState<AgentSettingsView | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
-  const heading = useRef<HTMLHeadingElement>(null)
+  const headingElement = useRef<HTMLHeadingElement>(null)
 
   function reload() {
     setSnapshot(null)
     setLoadError(false)
     setLoadAttempt(attempt => attempt + 1)
-    heading.current?.focus()
+    headingElement.current?.focus()
   }
 
   useEffect(() => {
     const controller = new AbortController()
     async function load() {
       try {
-        const response = await request('/agent-settings', { headers: { 'X-Learner-Id': learnerId }, signal: controller.signal })
+        const response = await request('/agent-settings', { headers: { 'X-User-Id': userId }, signal: controller.signal })
         const loaded = agentSettingsViewSchema.parse(await response.json())
         if (!controller.signal.aborted) setSnapshot(loaded)
       } catch (error) {
@@ -284,15 +285,15 @@ export function AgentSettings({ learnerId, onUnauthorized }: { learnerId: string
     }
     void load()
     return () => controller.abort()
-  }, [learnerId, onUnauthorized, loadAttempt])
+  }, [userId, onUnauthorized, loadAttempt])
 
   return (
     <div className="settings-content">
       <header className="settings-heading">
-        <h1 ref={heading} id="settings-heading" tabIndex={-1}>运行设置</h1>
-        <p>调整所有学习者的在线模型运行参数。保存后在下一次请求尝试中生效。</p>
+        <h1 ref={headingElement} id={heading.id} tabIndex={-1}>{heading.text}</h1>
+        <p>调整所有用户的在线模型运行参数。保存后在下一次请求尝试中生效。</p>
       </header>
-      {snapshot ? <SettingsForm initial={snapshot} learnerId={learnerId} onUnauthorized={onUnauthorized} onReload={reload} />
+      {snapshot ? <SettingsForm initial={snapshot} userId={userId} onUnauthorized={onUnauthorized} onReload={reload} />
         : loadError ? <div className="notice notice-error">
           <p role="alert">无法读取运行设置。请检查网络连接后重试。</p>
           <button type="button" onClick={reload}>重新读取设置</button>

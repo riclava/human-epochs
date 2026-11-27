@@ -1,20 +1,22 @@
-import type { ChatContentDraft, ChatMode, ChatProgress, ChatTurn } from "../contracts/chat.js";
+import type { ConversationContentDraft, ConversationMode, ConversationProgress, UserConversationTurn } from "../contracts/conversation.js";
+import type { ReviewProposal } from "../review/proposal.js";
 import { defaultAgentSettings, type AgentSettings } from "../contracts/agent-settings.js";
 import type { ObserveRun } from "./diagnostics.js";
-import { guideStudyGoal } from "./local-guidance.js";
+import { guideConversation } from "./local-guidance.js";
 import { discussMaterial, type MaterialPublication } from "./material-discussion.js";
-import { ModelFailure, type CallModel, type MaterialPrompt, type ReplyDelta, type StudyMessage, type StudyModel } from "./model.js";
+import { ModelFailure, type CallModel, type MaterialPrompt, type ReplyDelta, type ConversationMessage, type ModelClient } from "./model.js";
 import { limitModelHistory } from "./model-history.js";
 import { runModelLoop } from "./model-loop.js";
 import { conversationPrompt, memoryDataNote } from "./prompts.js";
 
 export type TurnContext =
-  | { kind: "conversation"; history: StudyMessage[]; memory?: string }
+  | { kind: "conversation"; history: ConversationMessage[]; memory?: string }
   | { kind: "material"; prompt: MaterialPrompt; publication?: MaterialPublication };
 
 export interface TurnReply {
-  content: ChatContentDraft[];
-  explanationMode?: ChatTurn["explanationMode"];
+  replyBlocks: ConversationContentDraft[];
+  explanationSource?: UserConversationTurn["explanationSource"];
+  review?: ReviewProposal;
 }
 
 type TurnResult =
@@ -23,13 +25,13 @@ type TurnResult =
 
 interface RunOptions {
   onTextDelta?: ReplyDelta;
-  onProgress?: (progress: ChatProgress) => void;
+  onProgress?: (progress: ConversationProgress) => void;
   observe?: ObserveRun;
   signal?: AbortSignal;
 }
 
 function modelCaller(
-  model: StudyModel, expiresAt: number, settings: Readonly<AgentSettings>, now: () => number, options: RunOptions,
+  model: ModelClient, expiresAt: number, settings: Readonly<AgentSettings>, now: () => number, options: RunOptions,
 ): CallModel {
   let calls = 0;
   return async input => {
@@ -63,8 +65,8 @@ function modelCaller(
   };
 }
 
-export function createTurnRunner(model: StudyModel | null, now = Date.now) {
-  const mode: ChatMode = model ? "model" : "guided";
+export function createTurnRunner(model: ModelClient | null, now = Date.now) {
+  const mode: ConversationMode = model ? "model" : "guided";
 
   async function runTurn(
     context: TurnContext, deadline: Date, settings: Readonly<AgentSettings> = defaultAgentSettings, options: RunOptions = {},
@@ -89,13 +91,13 @@ export function createTurnRunner(model: StudyModel | null, now = Date.now) {
                 ? [{ role: "user", content: context.memory }, ...context.history]
                 : limitModelHistory(context.history, settings.historyBytes), format: "text",
             })
-            : guideStudyGoal(context.history);
+            : guideConversation(context.history);
           output = textReply(reply.replace(/[\u0000\uD800-\uDFFF]/gu, "").trim());
           break;
         }
         case "material": {
-          const { content, mode } = await discussMaterial(context.publication, context.prompt, callModel, settings, options);
-          output = { content, explanationMode: mode };
+          const { replyBlocks, explanationSource, review } = await discussMaterial(context.publication, context.prompt, callModel, settings, options);
+          output = { replyBlocks, explanationSource, ...(review ? { review } : {}) };
           break;
         }
       }
@@ -106,12 +108,12 @@ export function createTurnRunner(model: StudyModel | null, now = Date.now) {
     }
 
     if (now() >= expiresAt) return { kind: "failed", reason: "deadline" };
-    return output.content.length ? { kind: "complete", output } : { kind: "failed", reason: "empty_reply" };
+    return output.replyBlocks.length ? { kind: "complete", output } : { kind: "failed", reason: "empty_reply" };
   }
 
   return { mode, runTurn };
 }
 
 function textReply(text: string): TurnReply {
-  return { content: text ? [{ kind: "text", text }] : [] };
+  return { replyBlocks: text ? [{ kind: "text", text }] : [] };
 }

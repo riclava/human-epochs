@@ -141,25 +141,3 @@
   .settings-field-label { padding-top: 0; }
   .settings-field-control { width: min(100%, 14rem); }
 }
-
-.memory-content { max-width: var(--reading-width); }
-.memory-form { margin-top: 0; padding: var(--space-4); }
-.memory-content h2 { font-size: var(--text-section); text-wrap: balance; }
-.memory-content p { text-wrap: pretty; }
-.memory-authorization { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); }
-.memory-list { margin-block: var(--space-5); }
-.memory-list ul { list-style: none; padding: 0; }
-.memory-list li, .memory-dialog {
-  background: var(--color-panel);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  padding: var(--space-4);
-  overflow-wrap: anywhere;
-}
-.memory-list li { margin-block: var(--space-2); }
-.memory-list li p { white-space: pre-wrap; }
-.memory-list small { color: var(--color-muted); }
-.memory-dialog { width: min(calc(100% - var(--space-6)), 30rem); margin: auto; }
-.memory-dialog::backdrop { background: rgb(25 40 59 / 45%); }
-.memory-dialog p { margin-block: var(--space-2); }
-.memory-source-link { color: var(--color-accent); font-size: var(--text-caption); }

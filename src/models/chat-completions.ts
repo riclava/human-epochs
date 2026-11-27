@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { readServerEvents } from "../contracts/event-stream.js";
-import { ModelFailure, type ModelMessage, type ModelReply, type ModelUsage, type ReplyDelta, type StudyModel, type ToolCall } from "../runtime/model.js";
+import { ModelFailure, type ModelMessage, type ModelReply, type ModelUsage, type ReplyDelta, type ModelClient, type ToolCall } from "../runtime/model.js";
 
 const usageSchema = z.object({ prompt_tokens: z.int().nonnegative(), completion_tokens: z.int().nonnegative() });
 const usage = (value: unknown): ModelUsage | undefined => {
@@ -57,7 +57,7 @@ async function readTextCompletion(response: Response, onTextDelta?: ReplyDelta):
     const delta = choice.delta.content;
     if (delta) {
       receivedBytes += Buffer.byteLength(delta);
-      if (receivedBytes > maxReplyBytes) throw new Error("Learning model reply is too large");
+      if (receivedBytes > maxReplyBytes) throw new Error("Model reply is too large");
       text += delta;
       onTextDelta?.(delta);
     }
@@ -87,12 +87,12 @@ interface ChatCompletionsOptions {
 
 export function createChatCompletionsModel({
   env = process.env, fetchImpl = fetch, tokenParameter = "max_tokens",
-}: ChatCompletionsOptions = {}): StudyModel | null {
-  const key = env.STUDY_AGENT_API_KEY?.trim();
+}: ChatCompletionsOptions = {}): ModelClient | null {
+  const key = env.MODEL_API_KEY?.trim();
   if (!key) return null;
 
-  const base = env.STUDY_AGENT_BASE_URL?.trim() || "https://api.deepseek.com";
-  const model = env.STUDY_AGENT_MODEL?.trim() || "deepseek-flash";
+  const base = env.MODEL_BASE_URL?.trim() || "https://api.deepseek.com";
+  const model = env.MODEL_ID?.trim() || "deepseek-flash";
   const endpoint = new URL("chat/completions", base.replace(/\/+$/, "") + "/");
   return async ({ system, messages, format, tools, toolChoice, signal, maxOutputTokens, onTextDelta }) => {
     const streamText = format === "text" && !tools?.length;

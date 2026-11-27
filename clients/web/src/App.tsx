@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import type { User } from '../../../src/contracts/session'
 import { ConversationWorkspace } from './ConversationWorkspace'
 import { HttpError, request } from './api'
-import type { Learner } from './api'
 
 type SessionState =
   | { state: 'checking' | 'signing-out' | 'check-error' | 'sign-out-error' }
   | { state: 'anonymous'; notice?: string }
-  | { state: 'authenticated'; learner: Learner }
+  | { state: 'authenticated'; user: User }
+
+type SessionCheck = 'required' | 'background'
 
 const authenticationChannel = 'human-epochs-authentication'
 const sessionTitles = {
@@ -96,7 +98,7 @@ function Login({ onSuccess, notice }: { onSuccess: () => void; notice?: string }
           <input type="password" id="password" name="password" required autoComplete="current-password" maxLength={1024}
             readOnly={pending} aria-invalid={fieldError || undefined} aria-describedby={fieldError ? 'login-error' : undefined} />
           {error && <p id="login-error" className="form-error" role="alert">{loginErrors[error]}</p>}
-          <button ref={submitButton} type="submit" className="primary" disabled={pending}>{pending ? '正在登录…' : '进入学习空间'}</button>
+          <button ref={submitButton} type="submit" className="primary" disabled={pending}>{pending ? '正在登录…' : '进入对话'}</button>
         </form>
         {import.meta.env.DEV && (
           <details className="dev-accounts">
@@ -119,32 +121,36 @@ export function App() {
   const focusAfterLogin = useRef(false)
   const retryButton = useRef<HTMLButtonElement>(null)
 
-  const checkSession = useCallback(async () => {
-    if (signingOut.current) return
+  const checkSession = useCallback(async (kind: SessionCheck = 'required') => {
+    if (signingOut.current || (kind === 'background' && activeCheck.current)) return
     activeCheck.current?.abort()
     const controller = new AbortController()
     activeCheck.current = controller
-    setSession({ state: 'checking' })
+    if (kind === 'required') setSession({ state: 'checking' })
     try {
       const response = await request('/session', { signal: controller.signal })
-      const { learner }: { learner: Learner } = await response.json()
+      const { user }: { user: User } = await response.json()
       if (controller.signal.aborted) return
       wasAuthenticated.current = true
-      setSession({ state: 'authenticated', learner })
+      setSession({ state: 'authenticated', user })
     } catch (error) {
       if (controller.signal.aborted) return
       if (error instanceof HttpError && error.status === 401) {
         let notice: string | undefined
-        if (wasAuthenticated.current) notice = '登录状态已结束。请重新登录以返回学习空间。'
+        if (wasAuthenticated.current) notice = '登录状态已结束。请重新登录以返回对话。'
         else if (focusAfterLogin.current) notice = '登录状态未能保存。请确认浏览器允许本站使用 Cookie，再重新登录。'
         wasAuthenticated.current = false
         focusAfterLogin.current = false
         setSession({ state: 'anonymous', notice })
-      } else {
+      } else if (kind === 'required') {
         setSession({ state: 'check-error' })
       }
+    } finally {
+      if (activeCheck.current === controller) activeCheck.current = null
     }
   }, [])
+
+  const recheckSession = useCallback(() => { void checkSession() }, [checkSession])
 
   useEffect(() => {
     void checkSession()
@@ -166,7 +172,7 @@ export function App() {
   useEffect(() => {
     if (session.state !== 'authenticated') return
     function onVisible() {
-      if (document.visibilityState === 'visible') void checkSession()
+      if (document.visibilityState === 'visible') void checkSession('background')
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
@@ -198,7 +204,7 @@ export function App() {
     }
     wasAuthenticated.current = false
     authenticationEvents.current?.postMessage('changed')
-    setSession({ state: 'anonymous', notice: '已退出学习空间。你可以重新登录或使用其他账号。' })
+    setSession({ state: 'anonymous', notice: '已退出登录。你可以重新登录或使用其他账号。' })
   }
 
   return (
@@ -236,9 +242,9 @@ export function App() {
           void checkSession()
         }} />}
         {session.state === 'authenticated' && <ConversationWorkspace
-          key={session.learner.id}
-          learner={session.learner}
-          onUnauthorized={checkSession}
+          key={session.user.id}
+          user={session.user}
+          onUnauthorized={recheckSession}
           onSignOut={signOut}
           brand={<Brand />}
         />}

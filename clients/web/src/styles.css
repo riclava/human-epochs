@@ -130,7 +130,7 @@ button:disabled { cursor: not-allowed; }
 .sidebar .brand-mark { width: 1.4rem; height: 1.4rem; }
 .sidebar-content { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .navigation-toggle { display: none; }
-.home-link {
+.workspace-link {
   display: flex;
   align-items: center;
   min-height: var(--control-height);
@@ -141,9 +141,9 @@ button:disabled { cursor: not-allowed; }
   color: var(--color-ink);
   font-size: var(--text-small);
 }
-.home-link svg { width: 1.15rem; height: 1.15rem; flex-shrink: 0; }
-.home-link:hover { background: var(--color-accent-soft); }
-.home-link[aria-current] {
+.workspace-link svg { width: 1.15rem; height: 1.15rem; flex-shrink: 0; }
+.workspace-link:hover { background: var(--color-accent-soft); }
+.workspace-link[aria-current] {
   background: var(--color-selected);
   color: var(--color-accent);
   box-shadow: inset 3px 0 var(--color-marker);
@@ -174,38 +174,51 @@ button:disabled { cursor: not-allowed; }
   border-bottom: 1px solid var(--color-border);
 }
 .conversation-header h1 { font: 650 var(--text-section)/1.4 var(--font-display); }
-.conversation-pane:focus-visible, .home-link:focus-visible { outline-offset: -3px; }
+.conversation-pane:focus-visible, .workspace-link:focus-visible { outline-offset: -3px; }
 .source-quote figcaption { color: var(--color-muted); font-size: var(--text-caption); }
 .source-quote { margin: var(--space-3) 0 0; padding-inline-start: var(--space-3); border-inline-start: 2px solid var(--color-control-border); }
 .source-quote blockquote { margin: var(--space-1) 0 0; white-space: pre-wrap; line-height: 1.65; overflow-wrap: anywhere; }
 .turn-sources summary { padding-block: var(--space-2); font-size: var(--text-small); color: var(--color-accent); }
 .turn-sources { font-size: var(--text-small); }
 /* The home composer sits beneath the opening question, then docks below the conversation. */
-.chat-mode { font-size: var(--text-caption); color: var(--color-muted); }
-.study-home {
+.conversation-mode { font-size: var(--text-caption); color: var(--color-muted); }
+.conversation-body {
   min-height: 0;
   overflow-y: auto;
   padding-block: clamp(var(--space-8), 13vh, 8rem) var(--space-8);
 }
-.study-home.has-history {
+.conversation-body.has-history {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   padding-block: 0;
   overflow: hidden;
 }
-.study-column { width: min(calc(100% - var(--space-12)), var(--reading-width)); margin-inline: auto; }
-.study-welcome { margin-bottom: var(--space-6); }
-.study-welcome h2 { font: 650 var(--text-title)/1.3 var(--font-display); }
-.study-welcome p { margin-top: var(--space-2); color: var(--color-muted); }
-.study-composer {
+.conversation-column { width: min(calc(100% - var(--space-12)), var(--reading-width)); margin-inline: auto; }
+.conversation-welcome { margin-bottom: var(--space-6); }
+.conversation-welcome h2 { font: 650 var(--text-title)/1.3 var(--font-display); }
+.conversation-welcome p { margin-top: var(--space-2); color: var(--color-muted); }
+.conversation-starter { margin-top: var(--space-3); }
+.review-invite {
+  margin-bottom: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-subtle);
+}
+.review-invite p { text-wrap: pretty; }
+.review-invite span, .review-status { color: var(--color-muted); font-size: var(--text-small); }
+.review-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.review-actions button[aria-disabled="true"] { opacity: .65; cursor: default; }
+.review-status:not(:empty) { margin-bottom: var(--space-2); }
+.conversation-composer {
   padding: var(--space-4);
   border: 1px solid var(--color-control-border);
   border-radius: var(--radius-panel);
   background: var(--color-panel);
   box-shadow: var(--shadow-panel);
 }
-.study-composer:focus-within { border-color: var(--color-focus); }
-.study-composer textarea {
+.conversation-composer:focus-within { border-color: var(--color-focus); }
+.conversation-composer textarea {
   display: block;
   width: 100%;
   min-height: 3.5rem;
@@ -219,10 +232,10 @@ button:disabled { cursor: not-allowed; }
   resize: vertical;
   max-height: 25dvh;
 }
-.study-composer textarea::placeholder { opacity: 1; color: var(--color-muted); }
-.study-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); }
-.study-toolbar > span { font-size: var(--text-caption); color: var(--color-muted); }
-.study-toolbar button {
+.conversation-composer textarea::placeholder { opacity: 1; color: var(--color-muted); }
+.conversation-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); }
+.conversation-toolbar > span { font-size: var(--text-caption); color: var(--color-muted); }
+.conversation-toolbar button {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -233,16 +246,56 @@ button:disabled { cursor: not-allowed; }
   border-color: var(--color-accent);
   font-weight: 600;
 }
-.study-toolbar button:enabled:hover { color: var(--color-on-accent); background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
-.study-toolbar button:disabled { background: var(--color-disabled); border-color: var(--color-disabled); color: var(--color-disabled-ink); }
-.study-compose-wrap > .notice { margin-bottom: var(--space-3); }
-.has-history .study-reading { overflow-y: auto; overscroll-behavior: contain; padding-block: var(--space-6); }
-.study-reading:focus-visible { outline-offset: -3px; }
-.has-history .study-compose-wrap { padding-block: var(--space-2) max(var(--space-4), env(safe-area-inset-bottom)); }
-.study-log, .study-turn { display: grid; gap: var(--space-5); }
-.study-log { gap: var(--space-8); }
-.learner-message { justify-self: end; max-width: min(90%, 38rem); padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); background: var(--color-selected); }
-.learner-message p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.conversation-toolbar button:enabled:hover { color: var(--color-on-accent); background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+.conversation-toolbar button:disabled { background: var(--color-disabled); border-color: var(--color-disabled); color: var(--color-disabled-ink); }
+.conversation-compose-wrap > .notice { margin-bottom: var(--space-3); }
+.has-history .conversation-reading { overflow-y: auto; overscroll-behavior: contain; padding-block: var(--space-6); }
+.conversation-reading:focus-visible { outline-offset: -3px; }
+.has-history .conversation-compose-wrap { padding-block: var(--space-2) max(var(--space-4), env(safe-area-inset-bottom)); }
+.conversation-log, .conversation-turn { display: grid; gap: var(--space-5); }
+.conversation-log { gap: var(--space-8); }
+.user-message { justify-self: end; max-width: min(90%, 38rem); padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); background: var(--color-selected); }
+.user-message p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-toggle {
+  padding-inline: var(--space-2);
+  margin-inline-start: calc(-1 * var(--space-2));
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--text-small);
+}
+.memory-status { color: var(--color-muted); font-size: var(--text-small); }
+.message-memory-panel {
+  width: min(28rem, 100%);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  text-wrap: pretty;
+}
+.message-memory-form { display: grid; gap: var(--space-2); }
+.message-memory-form textarea, .memory-options input, .memory-options select { width: 100%; min-width: 0; }
+.message-memory-form textarea { resize: vertical; }
+.memory-authorization { display: flex; align-items: center; gap: var(--space-2); min-height: var(--control-height); }
+.memory-options label { display: block; margin-top: var(--space-2); }
+.memory-options small, .message-memory-list small { color: var(--color-muted); }
+.message-memory-list { list-style: none; margin: 0 0 var(--space-3); padding: 0; }
+.message-memory-list li + li { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.message-memory-list p { white-space: pre-wrap; }
+.memory-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block-start: var(--space-2); }
+.memory-dialog {
+  width: min(calc(100% - var(--space-6)), 30rem);
+  margin: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-panel);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.memory-dialog::backdrop { background: rgb(25 40 59 / 45%); }
+.memory-dialog h2 { font-size: var(--text-section); }
+.memory-dialog p { margin-block: var(--space-2); }
 .agent-message { min-width: 0; }
 .agent-message > strong { display: block; margin-bottom: var(--space-1); color: var(--color-accent); font-size: var(--text-small); }
 .reply-markdown { font-size: var(--text-body); line-height: 1.6; overflow-wrap: anywhere; }
@@ -284,10 +337,10 @@ button:disabled { cursor: not-allowed; }
   .sidebar.is-open .sidebar-content { display: flex; }
   .sidebar-account { padding-block: var(--space-2); }
   .conversation-header { min-height: 3.5rem; padding: var(--space-3) var(--space-5); }
-  .study-home { padding-block-start: clamp(var(--space-6), 8vh, var(--space-12)); }
-  .study-column { width: calc(100% - 2 * var(--space-4)); }
-  .study-composer { padding: var(--space-3); }
-  .has-history .study-compose-wrap { padding-bottom: max(var(--space-2), env(safe-area-inset-bottom)); }
+  .conversation-body { padding-block-start: clamp(var(--space-6), 8vh, var(--space-12)); }
+  .conversation-column { width: calc(100% - 2 * var(--space-4)); }
+  .conversation-composer { padding: var(--space-3); }
+  .has-history .conversation-compose-wrap { padding-bottom: max(var(--space-2), env(safe-area-inset-bottom)); }
 }
 
 @media (max-width: 30em) {
@@ -300,6 +353,6 @@ button:disabled { cursor: not-allowed; }
   .workspace { height: auto; min-height: 100dvh; overflow: visible; }
   .sidebar { max-height: none; }
   .conversation-pane { grid-template-rows: auto 1fr; }
-  .study-home.has-history { display: block; overflow: visible; }
-  .has-history .study-reading { overflow: visible; }
+  .conversation-body.has-history { display: block; overflow: visible; }
+  .has-history .conversation-reading { overflow: visible; }
 }

@@ -1,10 +1,3 @@
-export interface Learner {
-  id: string
-  displayName: string
-  email: string
-  canManageAgentSettings: boolean
-}
-
 export class HttpError extends Error {
   constructor(readonly status: number, readonly response?: Response) {
     super(`HTTP ${status}`)

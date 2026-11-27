@@ -19,9 +19,9 @@ export const modelBaseUrlSchema = z.string().trim().min(1).max(512).pipe(z.url({
   const url = new URL(value);
   return !url.username && !url.password && !url.search && !url.hash;
 }).transform(value => new URL(value).toString().replace(/\/+$/, ""));
-export const modelEndpointSchema = z.strictObject({ baseUrl: modelBaseUrlSchema, modelId: modelIdSchema });
-export type ModelEndpoint = z.infer<typeof modelEndpointSchema>;
-const modelConnectionInputSchema = modelEndpointSchema.extend({
+export const modelConnectionTargetSchema = z.strictObject({ baseUrl: modelBaseUrlSchema, modelId: modelIdSchema });
+export type ModelConnectionTarget = z.infer<typeof modelConnectionTargetSchema>;
+const modelConnectionInputSchema = modelConnectionTargetSchema.extend({
   apiKey: z.string().trim().min(1).max(4_096).regex(/^[\x21-\x7e]+$/).optional(),
 });
 
@@ -45,9 +45,11 @@ export const defaultAgentSettings: Readonly<AgentSettings> = {
   maxToolCalls: 4,
 };
 
-export const saveAgentSettingsSchema = z.strictObject({ revision: z.int().min(0), settings: agentSettingsSchema });
-export type AgentSettingsSnapshot = z.infer<typeof saveAgentSettingsSchema>;
-export const saveAgentSettingsRequestSchema = saveAgentSettingsSchema.extend({ connection: modelConnectionInputSchema.optional() });
+export const saveAgentSettingsRequestSchema = z.strictObject({
+  expectedRevision: z.int().min(0),
+  settings: agentSettingsSchema,
+  connection: modelConnectionInputSchema.optional(),
+});
 export type SaveAgentSettingsRequest = z.infer<typeof saveAgentSettingsRequestSchema>;
 export const deepSeekBaseUrl = "https://api.deepseek.com";
 export function isDeepSeekEndpoint(baseUrl: string) {
@@ -55,10 +57,12 @@ export function isDeepSeekEndpoint(baseUrl: string) {
   return parsed?.origin === deepSeekBaseUrl;
 }
 
-export const agentSettingsViewSchema = saveAgentSettingsSchema.extend({
-  connection: modelEndpointSchema.extend({ hasApiKey: z.boolean() }),
+export const agentSettingsViewSchema = z.strictObject({
+  revision: z.int().min(0),
+  settings: agentSettingsSchema,
+  connection: modelConnectionTargetSchema.extend({ hasApiKey: z.boolean() }),
   defaultOutputTokens: bounded(agentSettingLimits.maxOutputTokens),
-  assistantAvailable: z.boolean(),
+  onlineModelAvailable: z.boolean(),
 });
 export type AgentSettingsView = z.infer<typeof agentSettingsViewSchema>;
 

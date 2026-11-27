@@ -1,6 +1,6 @@
-import type { StudyMessage } from "./model.js";
+import type { ConversationMessage } from "./model.js";
 
-export function limitModelHistory(history: StudyMessage[], historyByteLimit: number): StudyMessage[] {
+export function limitModelHistory(history: ConversationMessage[], historyByteLimit: number): ConversationMessage[] {
   let start = history.length;
   let remaining = historyByteLimit - 2; // JSON array brackets
   while (start > 0) {

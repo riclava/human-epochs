@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline'
 import { Pool } from 'pg'
 import { migrate } from '../../src/storage/migrate.js'
 import { seed } from '../../src/storage/seed.js'
-import { testModelBaseUrl } from './chat-stream.js'
+import { testModelBaseUrl } from './conversation-stream.js'
 
 export default async function prepareDatabase() {
   if (!process.env.DATABASE_URL) process.loadEnvFile('.env')
@@ -35,9 +35,9 @@ export default async function prepareDatabase() {
     process.env.DATABASE_URL = url.toString()
     // Keep the API lifetime inside that of its database, including setup failures and test interruptions.
     server = spawn(process.execPath, ['--import', 'tsx', 'src/app/server.ts'], {
-      env: { ...process.env, PORT: '3307', HOST: '127.0.0.1', STUDY_AGENT_API_KEY: '', STUDY_AGENT_ADMIN_EMAILS: 'alice@example.test',
-        STUDY_AGENT_ALLOWED_PRIVATE_BASE_URLS: testModelBaseUrl,
-        STUDY_AGENT_SETTINGS_KEY: Buffer.alloc(32, 2).toString('base64') },
+      env: { ...process.env, PORT: '3307', HOST: '127.0.0.1', MODEL_API_KEY: '', AGENT_SETTINGS_ADMIN_EMAILS: 'alice@example.test',
+        MODEL_ALLOWED_PRIVATE_BASE_URLS: testModelBaseUrl,
+        MODEL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 2).toString('base64') },
       stdio: ['ignore', 'pipe', 'inherit'],
     })
     const lines = createInterface({ input: server.stdout! })

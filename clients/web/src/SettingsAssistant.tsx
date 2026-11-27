@@ -7,9 +7,9 @@ import { HttpError, request } from './api'
 type Exchange = { question: string; advice: SettingsAdvice }
 type SettingsChanges = SettingsAdvice['changes']
 
-export function SettingsAssistant({ available, learnerId, getDraft, describe, apply, onUnauthorized, locked }: {
-  available: boolean
-  learnerId: string
+export function SettingsAssistant({ onlineModelAvailable, userId, getDraft, describe, apply, onUnauthorized, locked }: {
+  onlineModelAvailable: boolean
+  userId: string
   getDraft: () => AgentSettings | undefined
   describe: (changes: SettingsChanges) => string[]
   apply: (changes: SettingsChanges) => void
@@ -30,7 +30,7 @@ export function SettingsAssistant({ available, learnerId, getDraft, describe, ap
   async function ask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const text = question.trim()
-    if (!text || !available || activeRequest.current) return
+    if (!text || !onlineModelAvailable || activeRequest.current) return
 
     const history = exchanges.flatMap(({ question, advice }) => [
       { role: 'user', content: question }, { role: 'assistant', content: JSON.stringify(advice) },
@@ -42,7 +42,7 @@ export function SettingsAssistant({ available, learnerId, getDraft, describe, ap
     setError(false)
     try {
       const response = await request('/agent-settings/assistant', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Learner-Id': learnerId },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-User-Id': userId },
         signal: controller.signal,
         body: JSON.stringify({ history: history.slice(-settingsAssistantHistoryLimit), draft: getDraft() }),
       })
@@ -64,7 +64,7 @@ export function SettingsAssistant({ available, learnerId, getDraft, describe, ap
     <details className="settings-assistant">
       <summary>AI 设置助手</summary>
       <div className="settings-assistant-body">
-        {available ? <>
+        {onlineModelAvailable ? <>
           <p id="settings-assistant-guide">问参数怎么选，或者请 AI 拟一份设置。建议可填入表单，保存后生效。</p>
           <div ref={transcript} className="settings-dialogue" role="log" aria-label="设置对话">
             {exchanges.map(({ question, advice }, index) => {

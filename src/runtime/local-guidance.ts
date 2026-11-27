@@ -1,4 +1,4 @@
-import type { StudyMessage } from "./model.js";
+import type { ConversationMessage } from "./model.js";
 
 function excerpt(text: string): string {
   const characters = Array.from(text.trim().replace(/\s+/gu, " ").replace(/[。！？；，：.!?;,:]+$/u, ""));
@@ -6,7 +6,7 @@ function excerpt(text: string): string {
 }
 
 const topicChange = /^(?:换个(?:话题|主题|方向)|换(?:成|学)|改学|我?现在想学|我?想改学|我?想换个(?:话题|主题|方向))[，,。\s]*/u;
-const learningIntent = /^(?:我?想学(?:习)?(?!会)|我?想了解)/u;
+const topicIntroduction = /^(?:我?想学(?:习)?(?!会)|我?想了解)/u;
 const greeting = /^(?:你好|您好|hi|hello|还没想好|不知道学什么)?[!！。?？\s]*$/iu;
 const unsure = /零基础|没[有学做]过|从零|不知道|没想好|太难|不会|卡住/u;
 
@@ -20,18 +20,18 @@ function firstStep(goal: string): string {
   return "挑一个具体例子，先用自己的话解释给没学过的人听。说到哪一步时，你最需要一个例子或一份资料？";
 }
 
-export function guideStudyGoal(history: readonly StudyMessage[]): string {
-  const learnerMessages = history.filter(message => message.role === "user").map(message => message.content.trim());
+export function guideConversation(history: readonly ConversationMessage[]): string {
+  const userMessages = history.filter(message => message.role === "user").map(message => message.content.trim());
   let start = 0;
   let topic = "";
-  for (const [index, message] of learnerMessages.entries()) {
-    if (greeting.test(topic) || topicChange.test(message) || learningIntent.test(message)) {
+  for (const [index, message] of userMessages.entries()) {
+    if (greeting.test(topic) || topicChange.test(message) || topicIntroduction.test(message)) {
       start = index;
-      topic = excerpt(message.replace(topicChange, "").replace(learningIntent, ""));
+      topic = excerpt(message.replace(topicChange, "").replace(topicIntroduction, ""));
     }
   }
-  const steps = learnerMessages.slice(start + 1);
-  const latest = learnerMessages[learnerMessages.length - 1];
+  const steps = userMessages.slice(start + 1);
+  const latest = userMessages[userMessages.length - 1];
 
   if (greeting.test(topic)) {
     return "最近有没有一件事，让你想知道它是怎么回事，或者想自己做一次？可以从一个问题、一份材料或一项技能说起。";

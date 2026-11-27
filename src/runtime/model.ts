@@ -1,15 +1,17 @@
-import type { ChatSource } from "../contracts/chat.js";
+import type { ConversationSource } from "../contracts/conversation.js";
 
-export interface StudyMessage {
+export interface ConversationMessage {
   role: "user" | "assistant";
   content: string;
 }
 
 export interface MaterialPrompt {
   question: string;
-  history: StudyMessage[];
-  sources: ChatSource[];
+  history: ConversationMessage[];
+  sources: ConversationSource[];
   memory?: string;
+  offerReview?: true;
+  review?: { question: string; answer: string };
 }
 
 export interface ToolCall {
@@ -25,7 +27,7 @@ export interface ModelTool {
 }
 
 export type ModelMessage =
-  | StudyMessage
+  | ConversationMessage
   | { role: "assistant"; content: string | null; toolCalls: ToolCall[] }
   | { role: "tool"; content: string; toolCallId: string };
 
@@ -58,7 +60,7 @@ export interface ModelInput {
 }
 
 export type ReplyDelta = (text: string) => void;
-export type StudyModel = (request: ModelInput & {
+export type ModelClient = (request: ModelInput & {
   signal: AbortSignal;
   maxOutputTokens: number;
   onTextDelta?: ReplyDelta;
