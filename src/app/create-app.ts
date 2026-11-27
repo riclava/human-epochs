@@ -5,14 +5,16 @@ import type { ModelClient } from "../runtime/model.js";
 import { createActivityService } from "./activities/service.js";
 import { createAgentSettingsService, type ModelOptions } from "./agent-settings.js";
 import { createAuthService } from "./auth.js";
+import { attachBackgroundWorker } from "./background-worker.js";
 import { createConversationService } from "./conversation/service.js";
+import { processNextSummary } from "./conversation/summaries.js";
+import { processNextMemoryExtraction } from "./memory-extraction.js";
 import { createPersonalMemoryService } from "./personal-memories.js";
-import { attachConversationSummaryWorker } from "./conversation/summary-worker.js";
 
 export function createApp(
   pool: Pool, model: ModelClient | null, settingsAdminEmails?: string, modelOptions?: ModelOptions,
-  { backgroundSummaries = false, logger, reviewNow }: {
-    backgroundSummaries?: boolean; logger?: FastifyServerOptions["logger"]; reviewNow?: () => Date;
+  { backgroundJobs = false, logger, reviewNow }: {
+    backgroundJobs?: boolean; logger?: FastifyServerOptions["logger"]; reviewNow?: () => Date;
   } = {},
 ) {
   const settings = createAgentSettingsService(pool, model, modelOptions);
@@ -23,6 +25,9 @@ export function createApp(
     personalMemories: createPersonalMemoryService(pool),
     settings,
   }, logger);
-  if (backgroundSummaries) attachConversationSummaryWorker(app, pool, settings.execution);
+  if (backgroundJobs) attachBackgroundWorker(app, [
+    { name: "conversation summary", run: signal => processNextSummary(pool, settings.execution, signal) },
+    { name: "memory extraction", run: signal => processNextMemoryExtraction(pool, settings.execution, signal) },
+  ]);
   return app;
 }

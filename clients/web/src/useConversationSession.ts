@@ -26,6 +26,8 @@ export function useConversationSession(userId: string, onUnauthorized: () => voi
     const controller = new AbortController()
     snapshotRequest.current = controller
     let poll: ReturnType<typeof setTimeout>
+    // Suggestions arrive from a background job. Check a few times, then wait for the next refresh.
+    let suggestionChecks = 0
     async function load() {
       if (controller.signal.aborted) return
       try {
@@ -36,6 +38,7 @@ export function useConversationSession(userId: string, onUnauthorized: () => voi
         if (adoptedDraft) saveDraft({ messageText: '' })
         dispatch({ type: 'snapshot', snapshot, adoptedDraft })
         if (snapshot.turns.some(turn => turn.status === 'pending')) poll = setTimeout(load, 1500)
+        else if (snapshot.suggestionsPending && suggestionChecks++ < 10) poll = setTimeout(load, 3000)
       } catch (error) {
         if (controller.signal.aborted) return
         if (error instanceof HttpError && error.status === 401) onUnauthorized()

@@ -7,6 +7,7 @@ import {
 import { readReviewInvitations, scheduleReviewInvitation } from "../../review/invitations.js";
 import type { TurnReply } from "../../runtime/run-turn.js";
 import { inTransaction } from "../../storage/transaction.js";
+import { enqueueExtraction } from "../memory-candidates.js";
 import { enqueueSummary } from "./summaries.js";
 import { discussionChain } from "./history.js";
 import { resolveMaterialContext, namedMaterial } from "./materials.js";
@@ -173,9 +174,17 @@ export async function isActiveAttempt(pool: Pool, userId: string, requestId: str
   return result.rowCount === 1;
 }
 
+export interface PublishOptions {
+  memory?: TurnMemory;
+  reviewInvitationId?: string;
+  now?: Date;
+  // Memory suggestions need an online model, so guided replies do not queue extraction work.
+  extractMemories?: boolean;
+}
+
 export function publishTurn(
-  pool: Pool, userId: string, requestId: string, attempt: number, output: TurnReply | null, memory?: TurnMemory,
-  reviewInvitationId?: string, now = new Date(),
+  pool: Pool, userId: string, requestId: string, attempt: number, output: TurnReply | null,
+  { memory, reviewInvitationId, now = new Date(), extractMemories = false }: PublishOptions = {},
 ) {
   return inTransaction(pool, async db => {
     const result = await db.query<{ memory_revision: number }>(
@@ -201,6 +210,7 @@ export function publishTurn(
     `, params);
     if (published.rows[0]) {
       if (replyBlocks && memory) await recordMemoryUse(db, userId, requestId, memory, memoryRevision);
+      if (replyBlocks && extractMemories) await enqueueExtraction(db, userId, requestId);
       const discussionVersion = review?.discussionVersion ?? published.rows[0].materialContext?.discussionVersion;
       if (output?.review && discussionVersion) {
         await scheduleReviewInvitation(db, userId, requestId, review?.originRequestId ?? requestId, discussionVersion, output.review, now);

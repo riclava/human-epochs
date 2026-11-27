@@ -56,8 +56,10 @@ export function createConversationService(
       let output: TurnReply | null = null;
       let memory: TurnMemory | undefined;
       let reason: string | undefined = "context_failed";
+      let extractMemories = false;
       try {
         const config = await settings.execution();
+        extractMemories = !!config.model;
         const loaded = await loadContext(pool, userId, requestId, messageText, materialContext, config.settings, !!config.model, savedReviewInvitationId);
         memory = loaded.memory;
         if (!controller.signal.aborted && await isActiveAttempt(pool, userId, requestId, attempt)) {
@@ -75,7 +77,9 @@ export function createConversationService(
       }
       const publishStart = performance.now();
       try {
-        const { turn, outcome } = await publishTurn(pool, userId, requestId, attempt, output, memory, savedReviewInvitationId, now());
+        const { turn, outcome } = await publishTurn(pool, userId, requestId, attempt, output, {
+          memory, reviewInvitationId: savedReviewInvitationId, now: now(), extractMemories,
+        });
         log({ event: "publish", attempt, elapsedMs: Math.round(performance.now() - publishStart), outcome,
           status: turn.status, explanationSource: turn.kind === "user" ? turn.explanationSource : undefined, reason });
         return turn;
@@ -99,15 +103,15 @@ export function createConversationService(
   }
 
   async function readSnapshot(userId: string): Promise<ConversationSnapshot> {
-    const [{ turns, reviewInvitation, memories }, { onlineModelAvailable }] = await Promise.all([inTransaction(pool, async db => {
+    const [{ turns, reviewInvitation, personal }, { onlineModelAvailable }] = await Promise.all([inTransaction(pool, async db => {
       await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
       const turns = await readTurns(db, userId);
       const reviewInvitation = await readDueReviewInvitation(db, userId, now());
-      const { memories } = await readPersonalMemories(db, userId);
-      return { turns, reviewInvitation, memories };
+      const personal = await readPersonalMemories(db, userId);
+      return { turns, reviewInvitation, personal };
     }), settings.view()]);
     const starter = !turns.length && onlineModelAvailable ? publishedDiscussions[0] : undefined;
-    return { turns, memories, mode: onlineModelAvailable ? "model" : "guided", ...(reviewInvitation ? { reviewInvitation } : {}),
+    return { turns, ...personal, mode: onlineModelAvailable ? "model" : "guided", ...(reviewInvitation ? { reviewInvitation } : {}),
       ...(starter ? { starter: { discussionVersion: starter.discussionVersion, title: starter.title, question: starter.question } } : {}) };
   }
 

@@ -488,6 +488,8 @@ test('migrations and course seeding can run again without replacing progress', a
   assert.deepEqual((await pool.query('SELECT version FROM course_versions')).rows, [{ version: memoirCourse.version }])
 })
 
+const emptyMemories = { memories: [], candidates: [], suggestionsEnabled: false, suggestionsPending: false }
+
 function sendConversation(server: typeof app, cookie: string, requestId: string, text: string) {
   return server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: { requestId, messageText: text } })
 }
@@ -1087,7 +1089,7 @@ test('memory authorization also fences inherited history, buffered output and re
   assert.equal(first.statusCode, 200, first.payload)
   assert.deepEqual((await change(phone, create)).json(), first.json())
   assert.equal((await change(phone, { ...create, body: '另一条记忆' })).statusCode, 409)
-  assert.deepEqual((await list(other)).json(), { memories: [] })
+  assert.deepEqual((await list(other)).json(), emptyMemories)
 
   let started!: () => void
   let release!: () => void
@@ -1144,10 +1146,10 @@ test('memory authorization also fences inherited history, buffered output and re
   assert.equal((await change(desktop, { ...revoke, commandId: randomUUID() })).statusCode, 409)
 
   const forget = { operation: 'forget', commandId: randomUUID(), id: create.commandId, expectedRevision: updated.json().memories[0].revision }
-  assert.deepEqual((await change(phone, forget)).json(), { memories: [] })
-  assert.deepEqual((await change(desktop, forget)).json(), { memories: [] })
+  assert.deepEqual((await change(phone, forget)).json(), emptyMemories)
+  assert.deepEqual((await change(desktop, forget)).json(), emptyMemories)
   assert.equal((await change(desktop, { ...forget, expectedRevision: forget.expectedRevision + 1 })).statusCode, 409)
-  assert.deepEqual((await change(desktop, create)).json(), { memories: [] })
+  assert.deepEqual((await change(desktop, create)).json(), emptyMemories)
   assert.equal((await pool.query('SELECT body FROM personal_memories WHERE user_id = $1', [owner.id])).rows[0].body, null)
 })
 

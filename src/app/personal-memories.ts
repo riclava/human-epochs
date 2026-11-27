@@ -1,17 +1,21 @@
 import { createHash } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
-import type { PersonalMemoryCommand, PersonalMemory } from '../contracts/personal-memory.js'
+import type { PersonalMemoryCommand, PersonalMemory, PersonalMemorySnapshot } from '../contracts/personal-memory.js'
 import { inTransaction } from '../storage/transaction.js'
+import { acceptCandidate, readCandidateState, rejectCandidate, setSuggestions } from './memory-candidates.js'
 
 const columns = `id, revision, kind, body, topic, authorized_for_tutoring AS "authorizedForTutoring", expires_at AS "expiresAt",
   source_request_id AS "sourceRequestId"`
 
-export async function readPersonalMemories(db: Pool | PoolClient, userId: string) {
+type Refusal = { kind: 'conflict' | 'missing' | 'invalid_source' }
+type MemoryCommand = Extract<PersonalMemoryCommand, { operation: 'remember' | 'correct' | 'forget' }>
+
+export async function readPersonalMemories(db: Pool | PoolClient, userId: string): Promise<PersonalMemorySnapshot> {
   const result = await db.query<PersonalMemory>(`
     SELECT ${columns} FROM personal_memories
     WHERE user_id = $1 AND body IS NOT NULL ORDER BY updated_at DESC, id
   `, [userId])
-  return { memories: result.rows }
+  return { memories: result.rows, ...await readCandidateState(db, userId) }
 }
 
 export async function recallPersonalMemories(
@@ -52,39 +56,50 @@ async function readSource(db: Pool | PoolClient, userId: string, requestId: stri
   return source.rows[0]
 }
 
+async function changeMemory(db: PoolClient, userId: string, command: MemoryCommand): Promise<Refusal | null> {
+  const id = command.operation === 'remember' ? command.commandId : command.id
+  if (command.operation !== 'remember') {
+    const current = await db.query<{ revision: number }>(`
+      SELECT revision FROM personal_memories WHERE user_id = $1 AND id = $2 AND body IS NOT NULL
+    `, [userId, id])
+    if (!current.rows[0]) return { kind: 'missing' }
+    if (current.rows[0].revision !== command.expectedRevision) return { kind: 'conflict' }
+  }
+  if (command.operation !== 'forget' && command.sourceRequestId && !await readSource(db, userId, command.sourceRequestId)) {
+    return { kind: 'invalid_source' }
+  }
+  await writeMemory(db, userId, id, command)
+  if (command.operation !== 'remember') await invalidateMemory(db, userId, id)
+  return null
+}
+
+function applyCommand(db: PoolClient, userId: string, command: PersonalMemoryCommand): Promise<Refusal | null> {
+  switch (command.operation) {
+    case 'accept_candidate': return acceptCandidate(db, userId, command)
+    case 'reject_candidate': return rejectCandidate(db, userId, command.candidateId)
+    case 'set_suggestions': return setSuggestions(db, userId, command.enabled).then(() => null)
+    default: return changeMemory(db, userId, command)
+  }
+}
+
 export function createPersonalMemoryService(pool: Pool) {
   function change(userId: string, command: PersonalMemoryCommand) {
     const fingerprint = fingerprintCommand(command)
     return inTransaction(pool, async db => {
       await db.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId])
-      const id = command.operation === 'remember' ? command.commandId : command.id
       const received = await db.query<{ matches: boolean }>(`
         SELECT command_fingerprint = $3 AS matches
         FROM personal_memory_command_receipts WHERE user_id = $1 AND command_id = $2
       `, [userId, command.commandId, fingerprint])
       const receipt = received.rows[0]
-      if (receipt) {
-        if (!receipt.matches) return { kind: 'conflict' } as const
-        return { kind: 'saved', snapshot: await readPersonalMemories(db, userId) } as const
+      if (receipt && !receipt.matches) return { kind: 'conflict' } as const
+      if (!receipt) {
+        const refusal = await applyCommand(db, userId, command)
+        if (refusal) return refusal
+        await db.query(`
+          INSERT INTO personal_memory_command_receipts (user_id, command_id, command_fingerprint) VALUES ($1, $2, $3)
+        `, [userId, command.commandId, fingerprint])
       }
-
-      if (command.operation !== 'remember') {
-        const current = await db.query<{ revision: number }>(`
-          SELECT revision FROM personal_memories WHERE user_id = $1 AND id = $2 AND body IS NOT NULL
-        `, [userId, id])
-        if (!current.rows[0]) return { kind: 'missing' } as const
-        if (current.rows[0].revision !== command.expectedRevision) return { kind: 'conflict' } as const
-      }
-      if (command.operation !== 'forget' && command.sourceRequestId && !await readSource(db, userId, command.sourceRequestId)) {
-        return { kind: 'invalid_source' } as const
-      }
-
-      await writeMemory(db, userId, id, command)
-      if (command.operation !== 'remember') await invalidateMemory(db, userId, id)
-      await db.query(`
-        INSERT INTO personal_memory_command_receipts (user_id, command_id, memory_id, command_fingerprint)
-        VALUES ($1, $2, $3, $4)
-      `, [userId, command.commandId, id, fingerprint])
       return { kind: 'saved', snapshot: await readPersonalMemories(db, userId) } as const
     })
   }
@@ -96,13 +111,12 @@ export function createPersonalMemoryService(pool: Pool) {
 }
 
 function fingerprintCommand(command: PersonalMemoryCommand) {
-  const target = command.operation === 'remember' ? null : [command.id, command.expectedRevision]
-  const details = command.operation === 'forget' ? null :
-    [command.kind, command.body, command.topic, command.authorizedForTutoring, command.expiresAt, command.sourceRequestId ?? null]
-  return createHash('sha256').update(JSON.stringify([command.operation, target, details])).digest('hex')
+  const { commandId: _commandId, ...details } = command
+  const fields = Object.keys(details).sort()
+  return createHash('sha256').update(JSON.stringify(details, fields)).digest('hex')
 }
 
-async function writeMemory(db: PoolClient, userId: string, id: string, command: PersonalMemoryCommand) {
+async function writeMemory(db: PoolClient, userId: string, id: string, command: MemoryCommand) {
   if (command.operation === 'forget') {
     await db.query(`
       UPDATE personal_memories SET body = NULL, topic = '', authorized_for_tutoring = false, expires_at = NULL,

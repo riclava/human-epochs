@@ -45,7 +45,7 @@ export function reduceConversationSession(state: Session, event: Event): Session
     case 'snapshot': return { ...state, snapshot: event.snapshot, loadError: false,
       failure: event.adoptedDraft && state.failure?.action === 'send' ? null : state.failure }
     case 'load_failed': return { ...state, loadError: true }
-    case 'memory_saved': return { ...state, snapshot: state.snapshot && { ...state.snapshot, memories: event.snapshot.memories } }
+    case 'memory_saved': return { ...state, snapshot: state.snapshot && { ...state.snapshot, ...event.snapshot } }
     case 'sending': return { ...state, exchange: { phase: 'submitting', message: event.message }, failure: null }
     case 'received':
       if (exchange?.phase !== 'submitting' || exchange.message.requestId !== event.requestId) return state

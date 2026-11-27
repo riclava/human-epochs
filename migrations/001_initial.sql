@@ -10,7 +10,8 @@ CREATE TABLE users (
   display_name text NOT NULL,
   password_hash text NOT NULL,
   memory_revision integer NOT NULL DEFAULT 0,
-  review_reminders_enabled boolean NOT NULL DEFAULT true
+  review_reminders_enabled boolean NOT NULL DEFAULT true,
+  memory_suggestions_enabled boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE sessions (
@@ -156,12 +157,45 @@ CREATE TABLE personal_memories (
 );
 
 CREATE TABLE personal_memory_command_receipts (
-  user_id uuid NOT NULL,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   command_id uuid NOT NULL,
-  memory_id uuid NOT NULL,
   command_fingerprint text NOT NULL CHECK (length(command_fingerprint) = 64),
-  PRIMARY KEY (user_id, command_id),
-  FOREIGN KEY (user_id, memory_id) REFERENCES personal_memories(user_id, id) ON DELETE CASCADE
+  PRIMARY KEY (user_id, command_id)
+);
+
+CREATE TABLE personal_memory_extractions (
+  user_id uuid NOT NULL,
+  source_request_id uuid NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'complete', 'failed', 'cancelled')),
+  attempt integer NOT NULL DEFAULT 0,
+  memory_revision integer,
+  lease_until timestamptz,
+  PRIMARY KEY (user_id, source_request_id),
+  FOREIGN KEY (user_id, source_request_id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE
+);
+
+CREATE INDEX pending_personal_memory_extractions ON personal_memory_extractions (lease_until)
+  WHERE status = 'pending';
+
+-- Decided candidates keep only the fingerprint, so a rebuilt extraction cannot propose them again.
+CREATE TABLE personal_memory_candidates (
+  user_id uuid NOT NULL,
+  id uuid NOT NULL,
+  source_request_id uuid NOT NULL,
+  fingerprint text NOT NULL CHECK (length(fingerprint) = 64),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected', 'dismissed')),
+  kind text CHECK (kind IN ('statement', 'inference', 'wish')),
+  body text,
+  quote text,
+  reason text,
+  topic text,
+  suggested_for_tutoring boolean,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (user_id, id),
+  UNIQUE (user_id, fingerprint),
+  FOREIGN KEY (user_id, source_request_id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE,
+  CHECK ((status = 'pending') = (body IS NOT NULL)),
+  CHECK (num_nulls(kind, body, quote, reason, topic, suggested_for_tutoring) IN (0, 6))
 );
 
 CREATE TABLE conversation_memory_sources (

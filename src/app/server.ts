@@ -7,7 +7,7 @@ import { createApp } from "./create-app.js";
 const provider = createModelProvider(process.env);
 const cipher = createModelCredentialCipher(process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY);
 const pool = createPool();
-const app = createApp(pool, null, undefined, { provider, cipher }, { backgroundSummaries: true, logger: { stream: process.stderr } });
+const app = createApp(pool, null, undefined, { provider, cipher }, { backgroundJobs: true, logger: { stream: process.stderr } });
 app.addHook("onClose", async () => { await pool.end(); });
 const shutdown = async () => { await app.close(); };
 process.once("SIGINT", shutdown);

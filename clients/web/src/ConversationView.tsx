@@ -2,12 +2,21 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { conversationTextLimit } from '../../../src/contracts/conversation'
 import type { ConversationProgress, ConversationSnapshot, ConversationTurn, ReviewInvitationCommand, SendConversationCommand } from '../../../src/contracts/conversation'
-import type { PersonalMemory } from '../../../src/contracts/personal-memory'
 import { ConversationTurnMessage } from './ConversationTurnMessage'
 import { PersonalMemorySection } from './PersonalMemorySection'
 import { ReviewInvitationCard } from './ReviewInvitationCard'
 import { useConversationSession } from './useConversationSession'
 import type { WorkspacePageProps } from './workspace-pages'
+
+function groupBySource<T extends { sourceRequestId: string | null }>(records: readonly T[]) {
+  const groups = new Map<string | null, T[]>()
+  for (const record of records) {
+    const group = groups.get(record.sourceRequestId)
+    if (group) group.push(record)
+    else groups.set(record.sourceRequestId, [record])
+  }
+  return groups
+}
 
 const progressText: Record<ConversationProgress, string> = {
   reading_sources: '正在读取原文…', checking_citations: '正在核对引文…',
@@ -45,15 +54,8 @@ export function ConversationView({ userId, onUnauthorized, heading }: WorkspaceP
   const reviewInvitation = !loadError && snapshot?.reviewInvitation?.reviewInvitationId !== dismissedReviewInvitation
     ? snapshot?.reviewInvitation : undefined
   const activeReviewInvitationId = latest?.kind === 'review_question' ? latest.reviewInvitationId : undefined
-  const memoriesBySource = useMemo(() => {
-    const groups = new Map<string | null, PersonalMemory[]>()
-    for (const record of snapshot?.memories ?? []) {
-      const group = groups.get(record.sourceRequestId)
-      if (group) group.push(record)
-      else groups.set(record.sourceRequestId, [record])
-    }
-    return groups
-  }, [snapshot?.memories])
+  const memoriesBySource = useMemo(() => groupBySource(snapshot?.memories ?? []), [snapshot?.memories])
+  const candidatesBySource = useMemo(() => groupBySource(snapshot?.candidates ?? []), [snapshot?.candidates])
   const memoryActions = { userId, onUnauthorized, onSaved: conversation.memorySaved, onReload: conversation.refresh }
 
   useLayoutEffect(() => {
@@ -120,11 +122,13 @@ export function ConversationView({ userId, onUnauthorized, heading }: WorkspaceP
                   onClick={() => startMaterial(snapshot.starter!)}>聊聊《{snapshot.starter.title}》</button>}
               </div>
             )}
-            <PersonalMemorySection {...memoryActions} memories={memoriesBySource.get(null) ?? []} />
+            {snapshot && <PersonalMemorySection {...memoryActions} memories={memoriesBySource.get(null) ?? []}
+              suggestionsEnabled={snapshot.suggestionsEnabled} />}
             <div className="conversation-log" role="log" aria-label="对话记录" aria-relevant="additions text">
               {items.map(({ turn, status, preview, progress }) => <ConversationTurnMessage key={turn.requestId} turn={turn}
                 memory={turn.status === 'complete' && turn.kind === 'user' && <PersonalMemorySection {...memoryActions}
-                  source={turn} memories={memoriesBySource.get(turn.requestId) ?? []} />}
+                  source={turn} memories={memoriesBySource.get(turn.requestId) ?? []}
+                  candidates={candidatesBySource.get(turn.requestId) ?? []} />}
                 preview={preview} status={turn.kind === 'user' && <ReplyStatus status={status} progress={progress} canSend={canSend}
                   retry={() => send({ requestId: turn.requestId, messageText: turn.messageText })} />} />)}
             </div>

@@ -585,3 +585,41 @@ test('两端在原消息旁保存、纠正授权并忘记记忆', async ({ page,
   await page.reload()
   await expect(source(page).getByRole('button', { name: '记住这条消息' })).toBeVisible()
 })
+
+test('两端开启记忆提议，确认后才保存为记忆', async ({ page, phone, user }) => {
+  const text = '我想每天读二十分钟《史记》。'
+  await signIn(page, user.email)
+  await page.getByRole('button', { name: '记忆设置' }).click()
+  await page.getByLabel('让 Agent 从我的消息中提议记忆').check()
+  await expect(page.getByText('已开启记忆提议。')).toBeVisible()
+  const original = await sendText(page, text)
+  // The extraction job needs an online model, so the candidate is written the way a finished job writes it.
+  await user.pool.query(`
+    INSERT INTO personal_memory_candidates (user_id, id, source_request_id, fingerprint, kind, body, quote, reason, topic, suggested_for_tutoring)
+    VALUES ($1, $2, $3, repeat('a', 64), 'wish', '每天读二十分钟《史记》', '每天读二十分钟', '安排阅读计划时有用', '史记', true)
+  `, [user.id, randomUUID(), original.requestId])
+
+  await signIn(phone, user.email)
+  const source = (device: Page) => log(device).locator('.user-message').filter({ hasText: text })
+  await source(phone).getByRole('button', { name: '查看记忆提议（1）' }).click()
+  const proposals = source(phone).getByRole('list', { name: 'Agent 的记忆提议' })
+  await expect(proposals).toContainText('安排阅读计划时有用')
+  await proposals.getByRole('button', { name: '确认记住' }).click()
+  const body = phone.getByRole('textbox', { name: '记忆内容' })
+  await expect(body).toHaveValue('每天读二十分钟《史记》')
+  await expect(body).toBeFocused()
+  const authorization = phone.getByLabel('允许用于学习辅导')
+  await expect(authorization).not.toBeChecked()
+  await authorization.check()
+  await phone.getByRole('button', { name: '保存记忆' }).click()
+  await expect(source(phone)).toContainText('已保存记忆。')
+  await expect(proposals).toHaveCount(0)
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+
+  await page.reload()
+  await source(page).getByRole('button', { name: '查看这条消息的记忆' }).click()
+  await expect(source(page).getByRole('region', { name: '这条消息的记忆' })).toContainText('已授权学习辅导')
+  const snapshot: ConversationSnapshot = await (await page.request.get('/api/conversation')).json()
+  expect(snapshot.candidates).toEqual([])
+  expect(snapshot.memories).toEqual([expect.objectContaining({ sourceRequestId: original.requestId, kind: 'wish' })])
+})
