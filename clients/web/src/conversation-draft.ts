@@ -8,8 +8,8 @@ const DraftSchema = z.strictObject({
 })
 type Draft = z.infer<typeof DraftSchema>
 
-export function useConversationDraft(userId: string) {
-  const key = 'human-epochs:conversation-draft:' + userId
+export function useConversationDraft(userId: string, conversationId: string) {
+  const key = 'human-epochs:conversation-draft:' + userId + ':' + conversationId
   const [draft, setDraft] = useState<Draft>(() => {
     try {
       const saved = DraftSchema.safeParse(JSON.parse(sessionStorage.getItem(key) ?? 'null'))

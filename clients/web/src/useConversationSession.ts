@@ -8,10 +8,12 @@ import { useConversationDraft } from './conversation-draft'
 
 type Transfer = { requestId: string; controller: AbortController }
 
-export function useConversationSession(userId: string, onUnauthorized: () => void) {
+export type UnsentMessage = Omit<SendConversationCommand, 'conversationId'>
+
+export function useConversationSession(userId: string, conversationId: string, onUnauthorized: () => void) {
   const [state, dispatch] = useReducer(reduceConversationSession, initialConversationSession)
   const [refreshCount, queueRefresh] = useState(0)
-  const { draft, currentDraft, saveDraft } = useConversationDraft(userId)
+  const { draft, currentDraft, saveDraft } = useConversationDraft(userId, conversationId)
   const stream = useRef<Transfer | null>(null)
   const stopRequest = useRef<AbortController | null>(null)
   const snapshotRequest = useRef<AbortController | null>(null)
@@ -31,7 +33,7 @@ export function useConversationSession(userId: string, onUnauthorized: () => voi
     async function load() {
       if (controller.signal.aborted) return
       try {
-        const response = await request('/conversation', { headers: { 'X-User-Id': userId }, signal: controller.signal })
+        const response = await request('/conversations/' + conversationId, { headers: { 'X-User-Id': userId }, signal: controller.signal })
         const snapshot: ConversationSnapshot = await response.json()
         if (controller.signal.aborted) return
         const adoptedDraft = snapshot.turns.some(turn => turn.requestId === currentDraft.current.requestId)
@@ -47,7 +49,7 @@ export function useConversationSession(userId: string, onUnauthorized: () => voi
     }
     void load()
     return () => { controller.abort(); clearTimeout(poll) }
-  }, [refreshCount, currentDraft, userId, onUnauthorized, saveDraft])
+  }, [refreshCount, currentDraft, userId, conversationId, onUnauthorized, saveDraft])
 
   useEffect(() => {
     function onVisible() { if (document.visibilityState === 'visible') refresh() }
@@ -65,7 +67,8 @@ export function useConversationSession(userId: string, onUnauthorized: () => voi
     if (currentDraft.current.requestId === requestId) saveDraft({ messageText: '' })
   }
 
-  async function send(message: SendConversationCommand) {
+  async function send(unsent: UnsentMessage) {
+    const message: SendConversationCommand = { ...unsent, conversationId }
     if (stream.current || stopRequest.current || !view.canSend) return
     const { requestId } = message
     const controller = new AbortController()

@@ -17,9 +17,9 @@ test('hint commands require a valid revision and operation ID, and reject forged
 })
 
 test('conversation, review, settings and memory commands reject obsolete field names', () => {
-  const message = { requestId: id, messageText: '请解释这段原文。' }
+  const message = { conversationId: id, requestId: id, messageText: '请解释这段原文。' }
   const selection = { excerpt: { label: '笔记', text: '今天下雨了。' } }
-  const review = { commandId: id, action: 'accept' }
+  const review = { conversationId: id, commandId: id, action: 'accept' }
   const settings = { settings: defaultAgentSettings }
   const memory = { operation: 'forget', id, commandId: id }
 

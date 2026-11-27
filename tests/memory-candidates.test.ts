@@ -11,12 +11,15 @@ import { createTestUser, removeTestUser } from './fixtures/activity.js'
 import { readConversationTurn } from './fixtures/conversation-stream.js'
 import { login, useTestDatabase } from './fixtures/test-database.js'
 
+// Every user in this file talks in a conversation with this ID; each user gets their own conversation row.
+const conversationId = randomUUID()
+
 const pool = useTestDatabase()
 type Server = ReturnType<typeof createApp>
 
 async function send(server: Server, cookie: string, messageText: string) {
   const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
-    payload: { requestId: randomUUID(), messageText } })
+    payload: { conversationId, requestId: randomUUID(), messageText } })
   assert.equal(response.statusCode, 200, response.payload)
   const turn = await readConversationTurn(response.payload, String(response.headers['content-type']))
   assert.equal(turn.status, 'complete')
@@ -44,7 +47,7 @@ test('memory candidates are confirmed by their owner and follow the current sour
   const other = await login(server, 'bob@example.test')
   const change = (cookie: string, payload: object) => server.inject({ method: 'POST', url: '/api/personal-memories', headers: { cookie }, payload })
   const snapshot = async (cookie: string): Promise<ConversationSnapshot> =>
-    (await server.inject({ url: '/api/conversation', headers: { cookie } })).json()
+    (await server.inject({ url: '/api/conversations/' + conversationId, headers: { cookie } })).json()
   const jobs = () => pool.query('SELECT status, attempt FROM personal_memory_extractions WHERE user_id = $1 ORDER BY status', [user.id])
   const resetJobs = () => pool.query(`UPDATE personal_memory_extractions SET status = 'pending', attempt = 0, lease_until = NULL WHERE user_id = $1`, [user.id])
   const config = (model: ModelClient) => async () => ({ model, settings: defaultAgentSettings })

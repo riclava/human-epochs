@@ -23,6 +23,9 @@ import { inTransaction } from '../src/storage/transaction.js'
 import { createActivity } from '../src/activities/activities.js'
 import type { MaterialPrompt, ModelMessage, ModelClient } from '../src/runtime/model.js'
 
+// Every user in this file talks in a conversation with this ID; each user gets their own conversation row.
+const conversationId = randomUUID()
+
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error('Set DATABASE_URL before running database tests')
 const admin = new Pool({ connectionString: databaseUrl })
@@ -98,14 +101,14 @@ test('AI review schedules from a course and resumes, defers, answers and stops t
   const phone = newServer()
   t.after(async () => { await desktop.close(); await phone.close(); await removeTestUser(pool, user.id) })
   const headers = { cookie }
-  const snapshot = async (server = desktop) => (await server.inject({ url: '/api/conversation', headers })).json<ConversationSnapshot>()
-  const command = (action: ReviewInvitationCommand['action'], reviewInvitationId: string) => ({ action, reviewInvitationId, commandId: randomUUID() })
+  const snapshot = async (server = desktop) => (await server.inject({ url: '/api/conversations/' + conversationId, headers })).json<ConversationSnapshot>()
+  const command = (action: ReviewInvitationCommand['action'], reviewInvitationId: string) => ({ conversationId, action, reviewInvitationId, commandId: randomUUID() })
   const operate = (payload: ReviewInvitationCommand, server = desktop, cookieHeader = cookie) => server.inject({
     method: 'POST', url: '/api/conversation/review-invitations', headers: { cookie: cookieHeader }, payload,
   })
   async function send(text: string, reviewInvitationId?: string) {
     const response = await desktop.inject({ method: 'POST', url: '/api/conversation', headers,
-      payload: { requestId: randomUUID(), messageText: text, reviewInvitationId } })
+      payload: { conversationId, requestId: randomUUID(), messageText: text, reviewInvitationId } })
     assert.equal(response.statusCode, 200)
     return readConversationTurn(response.payload, String(response.headers['content-type']))
   }
@@ -186,10 +189,10 @@ test('an invalid review proposal leaves the lesson intact and deleted evidence h
   }, undefined, undefined, { reviewNow: () => new Date(time) })
   t.after(async () => { completeModel(); await server.close(); await removeTestUser(pool, user.id) })
   const headers = { cookie }
-  const snapshot = async () => (await server.inject({ url: '/api/conversation', headers })).json<ConversationSnapshot>()
+  const snapshot = async () => (await server.inject({ url: '/api/conversations/' + conversationId, headers })).json<ConversationSnapshot>()
   async function discuss(text: string) {
     const response = await server.inject({ method: 'POST', url: '/api/conversation', headers, payload: {
-      requestId: randomUUID(), messageText: text, materialSelection: { discussionVersion: discussion.discussionVersion },
+      conversationId, requestId: randomUUID(), messageText: text, materialSelection: { discussionVersion: discussion.discussionVersion },
     } })
     assert.equal(response.statusCode, 200)
     return readConversationTurn(response.payload, String(response.headers['content-type']))
@@ -200,7 +203,7 @@ test('an invalid review proposal leaves the lesson intact and deleted evidence h
   const origin = await discuss('正确引用')
   time += 86_400_000
   const invite = (await snapshot()).reviewInvitation!
-  const payload = { action: 'accept', reviewInvitationId: invite.reviewInvitationId, commandId: randomUUID() }
+  const payload = { conversationId, action: 'accept', reviewInvitationId: invite.reviewInvitationId, commandId: randomUUID() }
   const accept = () => server.inject({ method: 'POST', url: '/api/conversation/review-invitations', headers, payload })
   const accepted = await accept()
   assert.equal(accepted.statusCode, 200, accepted.payload)
@@ -208,7 +211,7 @@ test('an invalid review proposal leaves the lesson intact and deleted evidence h
     kind: 'statement', body: '我想留下这条操作。', topic: '', expiresAt: null, authorizedForTutoring: false }
   assert.equal((await server.inject({ method: 'POST', url: '/api/personal-memories', headers, payload: asMemorySource })).statusCode, 400)
   const answering = server.inject({ method: 'POST', url: '/api/conversation', headers, payload: {
-    requestId: randomUUID(), messageText: '这是转述。', reviewInvitationId: invite.reviewInvitationId,
+    conversationId, requestId: randomUUID(), messageText: '这是转述。', reviewInvitationId: invite.reviewInvitationId,
   } })
   await Promise.race([enteredModel, answering.then(result => { throw new Error('Expected a held model call: ' + result.statusCode) })])
   await pool.query(`UPDATE conversation_turns SET reply_blocks = jsonb_build_array(
@@ -227,7 +230,7 @@ test('an invalid review proposal leaves the lesson intact and deleted evidence h
   assert.ok(!JSON.stringify(restored).includes('这是亲历吗？'))
   assert.equal((await server.inject({ url: '/api/personal-memories/source/' + payload.commandId, headers })).statusCode, 404)
   assert.equal((await server.inject({ method: 'POST', url: '/api/conversation', headers, payload: {
-    requestId: randomUUID(), messageText: '仍然作答', reviewInvitationId: invite.reviewInvitationId,
+    conversationId, requestId: randomUUID(), messageText: '仍然作答', reviewInvitationId: invite.reviewInvitationId,
   } })).statusCode, 409)
 })
 
@@ -283,7 +286,7 @@ test('only configured administrators can save versioned runtime settings and an 
   assert.deepEqual(saved, { revision: 1, settings: proposed.settings })
 
   const received = server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie: user }, payload: {
-    requestId, messageText: '设备什么时候完成校准？',
+    conversationId, requestId, messageText: '设备什么时候完成校准？',
     materialSelection: { excerpt: { label: '设备记录', text: sourceText + '背景'.repeat(300) } },
   } })
   await Promise.race([modelStarted, received.then(response => assert.fail(`Expected a tool call before posting status ${response.statusCode}`))])
@@ -491,7 +494,7 @@ test('migrations and course seeding can run again without replacing progress', a
 const emptyMemories = { memories: [], candidates: [], suggestionsEnabled: false, suggestionsPending: false }
 
 function sendConversation(server: typeof app, cookie: string, requestId: string, text: string) {
-  return server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: { requestId, messageText: text } })
+  return server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: { conversationId, requestId, messageText: text } })
 }
 
 function terminalTurn(response: Awaited<ReturnType<typeof sendConversation>>) {
@@ -500,7 +503,7 @@ function terminalTurn(response: Awaited<ReturnType<typeof sendConversation>>) {
 }
 
 async function readConversation(server: typeof app, cookie: string): Promise<ConversationTurn[]> {
-  const response = await server.inject({ url: '/api/conversation', headers: { cookie } })
+  const response = await server.inject({ url: '/api/conversations/' + conversationId, headers: { cookie } })
   assert.equal(response.statusCode, 200)
   assert.ok(['guided', 'model'].includes(response.json().mode))
   return response.json().turns
@@ -533,10 +536,10 @@ test('conversation saves the question before generation, orders follow-ups and i
     return { kind: 'text', text: '我们可以先试一个小例子。' }
   })
   t.after(() => server.close())
-  assert.equal((await server.inject({ url: '/api/conversation' })).statusCode, 401)
+  assert.equal((await server.inject({ url: '/api/conversations/' + conversationId })).statusCode, 401)
   assert.equal((await server.inject({
     method: 'POST', url: '/api/conversation', headers: { cookie: alice, 'x-user-id': randomUUID() },
-    payload: { requestId, messageText: question },
+    payload: { conversationId, requestId, messageText: question },
   })).statusCode, 401)
   for (const invalid of ['   ', 'x'.repeat(4001), 'bad\u0000text']) {
     assert.equal((await sendConversation(server, alice, requestId, invalid)).statusCode, 400)
@@ -867,7 +870,7 @@ test('published material supports cited follow-ups and one shared activity acros
   const [source] = options
   assert.deepEqual(Object.keys(source).sort(), ['discussionVersion', 'question', 'sources', 'supplements', 'title'])
   const send = (cookie: string, requestId: string, text: string, materialSelection: ConversationMaterialSelection) =>
-    server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: { requestId, messageText: text, materialSelection } })
+    server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: { conversationId, requestId, messageText: text, materialSelection } })
   const start = (cookie: string, id: string) =>
     server.inject({ method: 'POST', url: '/api/conversation/' + id + '/activity', headers: { cookie } })
 
@@ -928,7 +931,7 @@ test('a user can ask about their own source without a course and an invented cit
   })
   t.after(() => server.close())
   const excerpt = { label: '值班记录（合成）', text: '周一傍晚，值班员在西侧温室数到三盆开花的兰花。' }
-  const command = { requestId: randomUUID(), messageText: '记录中的观察发生在什么时候？', materialSelection: { excerpt } }
+  const command = { conversationId, requestId: randomUUID(), messageText: '记录中的观察发生在什么时候？', materialSelection: { excerpt } }
   const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: command })
   assert.equal(response.statusCode, 200, response.payload)
   const turn = await terminalTurn(response)
@@ -955,7 +958,7 @@ test('a long discussion reads selected evidence across model calls and publishes
   const calibration = { label: '校准记录', text: quote + '同批'.repeat(1050) + '。' }
   const root = await app.inject({
     method: 'POST', url: '/api/conversation', headers: { cookie: desktop },
-    payload: { requestId: rootRequestId, messageText: '我想了解这项试验。', materialSelection: { excerpt: background } },
+    payload: { conversationId, requestId: rootRequestId, messageText: '我想了解这项试验。', materialSelection: { excerpt: background } },
   })
   assert.equal(root.statusCode, 200)
 
@@ -1009,7 +1012,7 @@ test('a long discussion reads selected evidence across model calls and publishes
   const question = '设备什么时候完成校准？'
   const received = server.inject({
     method: 'POST', url: '/api/conversation', headers: { cookie: desktop },
-    payload: { requestId, messageText: question, materialSelection: { parentRequestId: rootRequestId, excerpt: calibration } },
+    payload: { conversationId, requestId, messageText: question, materialSelection: { parentRequestId: rootRequestId, excerpt: calibration } },
   })
   await Promise.race([finalCall, received.then(response =>
     assert.fail(`Expected the final model call, got HTTP ${response.statusCode} after ${calls} calls`))])
@@ -1068,7 +1071,7 @@ test('conversation uses user-provided excerpts and does not attach private activ
   assert.equal((await terminalTurn(await sendConversation(server, cookie, randomUUID(), '怎么读回忆录？'))).status, 'complete')
   const reply = await terminalTurn(await server.inject({
     method: 'POST', url: '/api/conversation', headers: { cookie },
-    payload: { requestId: randomUUID(), messageText: '这段记录说了什么？', materialSelection: { excerpt: { label: '阅读笔记', text: quote } } },
+    payload: { conversationId, requestId: randomUUID(), messageText: '这段记录说了什么？', materialSelection: { excerpt: { label: '阅读笔记', text: quote } } },
   }))
   assert.equal(reply.explanationSource, 'model')
   assert.equal(conversationCitations(reply.replyBlocks)[0].quote, quote)
@@ -1170,7 +1173,7 @@ test('a summary can reclaim an expired job, stays in its branch and discards obs
   })
   t.after(() => server.close())
   const send = (cookie: string, requestId: string, text: string, materialSelection: ConversationMaterialSelection) =>
-    server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: { requestId, messageText: text, materialSelection } }).then(terminalTurn)
+    server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie }, payload: { conversationId, requestId, messageText: text, materialSelection } }).then(terminalTurn)
 
   await send(desktop, root, '看看馆藏记录', { excerpt })
   let parent = root

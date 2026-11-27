@@ -1,11 +1,11 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { conversationTextLimit } from '../../../src/contracts/conversation'
-import type { ConversationProgress, ConversationSnapshot, ConversationTurn, ReviewInvitationCommand, SendConversationCommand } from '../../../src/contracts/conversation'
+import type { ConversationProgress, ConversationSnapshot, ConversationTurn, ReviewInvitationCommand } from '../../../src/contracts/conversation'
 import { ConversationTurnMessage } from './ConversationTurnMessage'
 import { PersonalMemorySection } from './PersonalMemorySection'
 import { ReviewInvitationCard } from './ReviewInvitationCard'
-import { useConversationSession } from './useConversationSession'
+import { useConversationSession, type UnsentMessage } from './useConversationSession'
 import type { WorkspacePageProps } from './workspace-pages'
 
 function groupBySource<T extends { sourceRequestId: string | null }>(records: readonly T[]) {
@@ -41,9 +41,19 @@ function ReplyStatus({ status, progress, retry, canSend }: {
   </div>
 }
 
-export function ConversationView({ userId, onUnauthorized, heading }: WorkspacePageProps) {
-  const conversation = useConversationSession(userId, onUnauthorized)
+export function ConversationView(props: WorkspacePageProps) {
+  // The workspace replaces "#/" with a conversation address, so this state lasts only a moment.
+  if (!props.conversationId) return <header className="conversation-header"><h1 id={props.heading.id}>{props.heading.text}</h1></header>
+  return <ConversationPane {...props} conversationId={props.conversationId} />
+}
+
+function ConversationPane({ userId, onUnauthorized, heading, conversationId, onConversationsChanged }:
+  WorkspacePageProps & { conversationId: string }) {
+  const conversation = useConversationSession(userId, conversationId, onUnauthorized)
   const { snapshot, draft, latest, items, busy, canSend, activeId, controls, hasHistory, loadError, sendError, stopError } = conversation
+  // The sidebar shows titles and recency, which change when this conversation gains a turn.
+  const turnCount = snapshot?.turns.length ?? 0
+  useEffect(() => { if (turnCount) onConversationsChanged() }, [turnCount, onConversationsChanged])
   const [reviewStatus, setReviewStatus] = useState('')
   const [dismissedReviewInvitation, setDismissedReviewInvitation] = useState<string>()
   const [invalid, setInvalid] = useState(false)
@@ -63,7 +73,7 @@ export function ConversationView({ userId, onUnauthorized, heading }: WorkspaceP
     if (pane && followLatest.current) pane.scrollTop = pane.scrollHeight
   }, [latest?.requestId, latest?.status, activeId, conversation.scrollPreview, reviewInvitation?.reviewInvitationId])
 
-  function send(message: SendConversationCommand) {
+  function send(message: UnsentMessage) {
     if (!canSend) return
     setReviewStatus('')
     if (reviewInvitation) setDismissedReviewInvitation(reviewInvitation.reviewInvitationId)
@@ -104,7 +114,7 @@ export function ConversationView({ userId, onUnauthorized, heading }: WorkspaceP
   return (
     <>
       <header className="conversation-header">
-        <h1 id={heading.id}>{heading.text}</h1>
+        <h1 id={heading.id}>{snapshot ? snapshot.title ?? '新对话' : heading.text}</h1>
         {snapshot && <span className="conversation-mode">{snapshot.mode === 'guided' ? '本地引导' : '在线模型'}</span>}
       </header>
       <div className={hasHistory ? 'conversation-body has-history' : 'conversation-body'}>
@@ -139,7 +149,8 @@ export function ConversationView({ userId, onUnauthorized, heading }: WorkspaceP
             <p role="alert">暂时无法读取对话。请检查网络连接后重试。</p>
             <button type="button" onClick={conversation.refresh}>重新读取对话</button>
           </div>}
-          {reviewInvitation && <ReviewInvitationCard key={reviewInvitation.reviewInvitationId} invitation={reviewInvitation} userId={userId} disabled={busy}
+          {reviewInvitation && <ReviewInvitationCard key={reviewInvitation.reviewInvitationId} invitation={reviewInvitation} userId={userId}
+            conversationId={conversationId} disabled={busy}
             onUnauthorized={onUnauthorized} onResult={finishReview} onStale={restoreFocus => {
               setDismissedReviewInvitation(reviewInvitation.reviewInvitationId)
               setReviewStatus('复习邀请已更新。')

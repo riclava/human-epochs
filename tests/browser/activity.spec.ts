@@ -1,4 +1,4 @@
-import { expect, test as base, type Page } from '@playwright/test'
+import { expect, test as base, type Page, type Response } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { createServer } from 'node:http'
@@ -38,12 +38,38 @@ async function signIn(page: Page, email: string, path = '/') {
   await page.getByLabel('邮箱', { exact: true }).fill(email)
   await page.getByLabel('密码', { exact: true }).fill(password)
   await page.getByRole('button', { name: '进入对话' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: '对话' })).toBeVisible()
+  // The conversation page opens the latest conversation, or a new one, at its own address.
+  if (path === '/') await page.waitForURL(/#\/c\/[0-9a-f-]{36}$/u)
+  await expect(page.getByRole('main')).toBeVisible()
   await expect(send(page)).toBeEnabled()
 }
 
+function conversationIdOf(page: Page) {
+  const id = /#\/c\/([0-9a-f-]{36})$/u.exec(page.url())?.[1]
+  if (!id) throw new Error('Expected a conversation address')
+  return id
+}
+
+async function snapshotOf(page: Page): Promise<ConversationSnapshot> {
+  return (await page.request.get('/api/conversations/' + conversationIdOf(page))).json()
+}
+
+const isSnapshotRead = (response: Response) =>
+  /\/api\/conversations\/[0-9a-f-]{36}$/u.test(response.url()) && response.request().method() === 'GET'
+
+// Writes a published reply the way the conversation service stores one, in a new conversation for the user.
+async function publishReply(pool: Pool, userId: string, messageText: string, replyBlocks: object[]) {
+  const conversationId = randomUUID()
+  await pool.query(`INSERT INTO conversations (user_id, id, title) VALUES ($1, $2, $3)`, [userId, conversationId, messageText])
+  await pool.query(`
+    INSERT INTO conversation_turns (user_id, conversation_id, request_id, message_text, reply_blocks, status)
+    VALUES ($1, $2, $3, $4, $5, 'complete')
+  `, [userId, conversationId, randomUUID(), messageText, JSON.stringify(replyBlocks)])
+  return conversationId
+}
+
 async function expectTextWorkspace(page: Page) {
-  const main = page.getByRole('main', { name: '对话' })
+  const main = page.getByRole('main')
   await expect(main.getByRole('textbox')).toHaveCount(1)
   await expect(composer(page)).toBeInViewport()
   await expect(main.getByRole('combobox')).toHaveCount(0)
@@ -60,7 +86,7 @@ async function sendText(page: Page, text: string): Promise<UserConversationTurn>
   const receipt = await response
   expect(receipt.status()).toBe(200)
   await expect(send(page)).toBeEnabled()
-  const snapshot: ConversationSnapshot = await (await page.request.get('/api/conversation')).json()
+  const snapshot: ConversationSnapshot = await snapshotOf(page)
   const turn = snapshot.turns.at(-1)!
   if (turn.kind !== 'user') throw new Error('Expected a user turn after sending')
   expect(turn).toMatchObject({ messageText: text, status: 'complete' })
@@ -80,7 +106,7 @@ test('运行设置仅管理员可访问，桌面与窄屏均可修改', async ({
   await expect(settingsLink).toHaveAttribute('aria-current', 'page')
   await expect(page).toHaveTitle('运行设置 · Human Epochs')
   await page.goBack()
-  await expect(page.getByRole('main', { name: '对话' })).toBeFocused()
+  await expect(page.getByRole('main')).toBeFocused()
   await expect(conversationLink).toHaveAttribute('aria-current', 'page')
   await expect(page).toHaveTitle('对话 · Human Epochs')
   await page.goForward()
@@ -118,7 +144,7 @@ test('运行设置仅管理员可访问，桌面与窄屏均可修改', async ({
   await signIn(page, 'bob@example.test', '/#/settings')
   await expect(settingsLink).toHaveCount(0)
   await expect(conversationLink).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
+  await expect(composer(page)).toBeVisible()
 })
 
 test('AI 设置助手支持追问，建议先填入表单再由管理员保存', async ({ page }) => {
@@ -231,7 +257,7 @@ test('桌面与窄屏手机通过同一个文字输入框接续对话', async ({
   await expect(toggle).toBeFocused()
   await toggle.press('Enter')
   await home.press('Enter')
-  await expect(phone.getByRole('main', { name: '对话' })).toBeFocused()
+  await expect(phone.getByRole('main')).toBeFocused()
 
   const followUp = await sendText(phone, '我想写一首送给朋友的短诗。')
   await page.reload()
@@ -251,13 +277,13 @@ test('回复在途中丢失后，两端恢复同一条已收件的消息', async
     await route.abort('connectionreset')
   })
   const question = '我想了解潮汐的周期。'
-  const restored = page.waitForResponse(r => r.url().endsWith('/api/conversation') && r.request().method() === 'GET')
+  const restored = page.waitForResponse(isSnapshotRead)
   await composer(page).fill(question)
   await composer(page).press('Enter')
   expect((await restored).status()).toBe(200)
   await expect(log(page).getByText(question, { exact: true })).toHaveCount(1)
   await signIn(phone, user.email)
-  const snapshot: ConversationSnapshot = await (await phone.request.get('/api/conversation')).json()
+  const snapshot: ConversationSnapshot = await snapshotOf(phone)
   expect(snapshot.turns).toHaveLength(1)
   const [turn] = snapshot.turns
   if (turn.kind !== 'user') throw new Error('Expected the recovered user turn')
@@ -291,7 +317,7 @@ test('消息未送达时保留原文，重新发送复用原请求 ID', async ({
   expect((await received).status()).toBe(200)
   await expect(log(page).getByText(question, { exact: true })).toHaveCount(1)
   await expect(composer(page)).toHaveValue('')
-  const snapshot: ConversationSnapshot = await (await page.request.get('/api/conversation')).json()
+  const snapshot: ConversationSnapshot = await snapshotOf(page)
   expect(snapshot.turns).toHaveLength(1)
   expect(ids).toEqual([snapshot.turns[0].requestId, snapshot.turns[0].requestId])
 })
@@ -307,7 +333,7 @@ test('同浏览器退出及更换账号后隔离对话，另一台设备仍能�
   const loginHeading = page.getByRole('heading', { name: '登录', exact: true })
   await expect(loginHeading).toBeFocused()
   await expect(otherTab.getByRole('heading', { name: '登录', exact: true })).toBeVisible()
-  expect((await otherTab.request.get('/api/conversation')).status()).toBe(401)
+  expect((await otherTab.request.get('/api/conversations')).status()).toBe(401)
   await signIn(page, 'bob@example.test')
   await expect(otherTab.getByText('Bob', { exact: true })).toBeVisible()
   await expect(send(otherTab)).toBeEnabled()
@@ -344,7 +370,7 @@ test('旧材料对话保留引用，重新进入后仍可用文字继续讨论',
   await signIn(page, user.email)
   const excerpt = { label: '气象笔记', text: '九点测得树荫下的气温为二十度。' }
   const saved = await page.request.post('/api/conversation', { data: {
-    requestId: randomUUID(), messageText: '笔记里记下了什么气温？', materialSelection: { excerpt },
+    conversationId: conversationIdOf(page), requestId: randomUUID(), messageText: '笔记里记下了什么气温？', materialSelection: { excerpt },
   } })
   expect(saved.status()).toBe(200)
   const turn = await readConversationTurn(await saved.text(), saved.headers()['content-type'])
@@ -481,7 +507,7 @@ test('Markdown 在模型完成前显示，失败片段可重试，已发布回�
     await send(phone).click()
     const draftReply = log(phone).getByText('尚未完成的解释', { exact: true })
     await expect(draftReply).toBeVisible()
-    const pending: ConversationSnapshot = await (await phone.request.get('/api/conversation')).json()
+    const pending: ConversationSnapshot = await snapshotOf(phone)
     expect(pending.turns).toEqual([expect.objectContaining({ messageText: question, status: 'pending', replyBlocks: null })])
     finishFirst()
     const retry = log(phone).getByRole('button', { name: '重试回复' })
@@ -504,7 +530,7 @@ test('Markdown 在模型完成前显示，失败片段可重试，已发布回�
 
     await signIn(page, user.email)
     await expect(log(page).getByRole('heading', { level: 2, name: '先看月相 🌙' })).toBeVisible()
-    const published: ConversationSnapshot = await (await page.request.get('/api/conversation')).json()
+    const published: ConversationSnapshot = await snapshotOf(page)
     expect(published.turns).toEqual([{ ...pending.turns[0], status: 'complete', replyBlocks: [{ id: expect.any(String), kind: 'text', text: answerStart + answerEnd }] }])
 
     await composer(phone).fill('还能观察什么？')
@@ -522,7 +548,7 @@ test('Markdown 在模型完成前显示，失败片段可重试，已发布回�
     }
     await expect(partial).toHaveCount(0)
     await expect.poll(() => stoppedConnection).toBe(true)
-    const restored: ConversationSnapshot = await (await phone.request.get('/api/conversation')).json()
+    const restored: ConversationSnapshot = await snapshotOf(phone)
     expect(restored.turns.at(-1)).toMatchObject({ messageText: '还能观察什么？', status: 'stopped', replyBlocks: null })
     expect(calls).toBe(3)
   } finally {
@@ -557,7 +583,7 @@ test('两端在原消息旁保存、纠正授权并忘记记忆', async ({ page,
   await page.getByLabel('允许用于学习辅导').check()
   await page.getByRole('button', { name: '保存记忆' }).click()
   await expect(source(page).getByRole('region', { name: '这条消息的记忆' })).toContainText('已授权学习辅导')
-  const snapshot: ConversationSnapshot = await (await page.request.get('/api/conversation')).json()
+  const snapshot: ConversationSnapshot = await snapshotOf(page)
   expect(snapshot.memories).toEqual([expect.objectContaining({ sourceRequestId: original.requestId, body: text })])
   await expect(page.getByRole('link', { name: '个人记忆', exact: true })).toHaveCount(0)
 
@@ -619,7 +645,7 @@ test('两端开启记忆提议，确认后才保存为记忆', async ({ page, ph
   await page.reload()
   await source(page).getByRole('button', { name: '查看这条消息的记忆' }).click()
   await expect(source(page).getByRole('region', { name: '这条消息的记忆' })).toContainText('已授权学习辅导')
-  const snapshot: ConversationSnapshot = await (await page.request.get('/api/conversation')).json()
+  const snapshot: ConversationSnapshot = await snapshotOf(page)
   expect(snapshot.candidates).toEqual([])
   expect(snapshot.memories).toEqual([expect.objectContaining({ sourceRequestId: original.requestId, kind: 'wish' })])
 })
@@ -636,10 +662,7 @@ test('事件块在桌面显示时序图，在窄屏和放大文字时显示同�
     ],
     citations: [{ sourceId: 'notes', label: '借书记录（合成）', quote: '馆员查到书已借出，请小林登记预约。' }],
   }]
-  await user.pool.query(`
-    INSERT INTO conversation_turns (user_id, request_id, message_text, reply_blocks, status)
-    VALUES ($1, $2, '借书时发生了什么？', $3, 'complete')
-  `, [user.id, randomUUID(), JSON.stringify(replyBlocks)])
+  await publishReply(user.pool, user.id, '借书时发生了什么？', replyBlocks)
   const figure = (device: Page) => log(device).getByRole('figure', { name: '借书时的往来' })
   const steps = ['小林 → 馆员借《史记》', '馆员 → 小林书已借出，请登记预约', '小林登记预约']
 
@@ -673,10 +696,7 @@ test('关系图在桌面显示图形，在窄屏和放大文字时显示同一�
     edges: ['a', 'b', 'c', 'd', 'e', 'f'].map(id => ({ from: 'start', to: id })),
     citations: [{ sourceId: 'notes', label: '借书记录（合成）', quote: '小林登记后，馆员说书到了会通知。' }],
   }]
-  await user.pool.query(`
-    INSERT INTO conversation_turns (user_id, request_id, message_text, reply_blocks, status)
-    VALUES ($1, $2, '借书流程是什么？', $3, 'complete')
-  `, [user.id, randomUUID(), JSON.stringify(replyBlocks)])
+  await publishReply(user.pool, user.id, '借书流程是什么？', replyBlocks)
   const figure = (device: Page) => log(device).getByRole('figure', { name: '借书流程' })
   const relations = ['借书 → 登记预约（书已借出）', '登记预约 → 到书通知', '到书通知 → 借书（再借）']
 
@@ -701,5 +721,37 @@ test('关系图在桌面显示图形，在窄屏和放大文字时显示同一�
   await signIn(phone, user.email)
   await expect(figure(phone).locator('svg.diagram-drawing')).toBeHidden()
   await expect(figure(phone).getByRole('list', { name: '关系' }).getByRole('listitem')).toHaveText(relations)
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('新建对话、在侧栏切换，手机打开最近的对话', async ({ page, phone, user }) => {
+  await signIn(page, user.email)
+  const list = (device: Page) => device.getByRole('region', { name: '最近的对话' })
+  await expect(list(page)).toContainText('发出第一条消息后，对话会出现在这里。')
+  await sendText(page, '我想学会看星图。')
+  const stars = conversationIdOf(page)
+  await expect(list(page).getByRole('link', { name: '我想学会看星图。' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('我想学会看星图。')
+
+  await list(page).getByRole('button', { name: '新对话' }).click()
+  await expect.poll(() => conversationIdOf(page)).not.toBe(stars)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('新对话')
+  await expect(log(page).getByRole('listitem')).toHaveCount(0)
+  await expect(composer(page)).toHaveValue('')
+  await sendText(page, 'Python 怎么读取 CSV？')
+  await expect(list(page).getByRole('listitem')).toHaveText(['Python 怎么读取 CSV？', '我想学会看星图。'])
+  await expect(log(page)).not.toContainText('我想学会看星图。')
+
+  await list(page).getByRole('link', { name: '我想学会看星图。' }).click()
+  await expect(log(page).getByText('我想学会看星图。', { exact: true })).toHaveCount(1)
+  await expect(log(page)).not.toContainText('Python 怎么读取 CSV？')
+  expect(conversationIdOf(page)).toBe(stars)
+
+  await signIn(phone, user.email)
+  await expect(log(phone).getByText('Python 怎么读取 CSV？', { exact: true })).toHaveCount(1)
+  await phone.getByRole('button', { name: '展开导航' }).click()
+  await list(phone).getByRole('link', { name: '我想学会看星图。' }).click()
+  await expect(phone.getByRole('button', { name: '展开导航' })).toBeVisible()
+  await expect(log(phone).getByText('我想学会看星图。', { exact: true })).toHaveCount(1)
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })

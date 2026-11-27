@@ -30,6 +30,7 @@ export const conversationMaterialSelectionSchema = z.strictObject({
 export type ConversationMaterialSelection = z.infer<typeof conversationMaterialSelectionSchema>
 
 export const sendConversationCommandSchema = z.strictObject({
+  conversationId: requestId,
   requestId,
   messageText: clean(conversationTextLimit),
   materialSelection: conversationMaterialSelectionSchema.optional(),
@@ -173,12 +174,34 @@ export interface ReviewInvitation {
 }
 
 export const reviewInvitationCommandSchema = z.strictObject({
-  commandId: z.uuid().toLowerCase(), reviewInvitationId: z.uuid().toLowerCase(),
+  conversationId: z.uuid().toLowerCase(), commandId: z.uuid().toLowerCase(), reviewInvitationId: z.uuid().toLowerCase(),
   action: z.enum(['accept', 'later', 'stop']),
 })
 export type ReviewInvitationCommand = z.infer<typeof reviewInvitationCommandSchema>
 
+export interface ConversationListItem {
+  conversationId: string
+  title: string
+  updatedAt: string
+}
+
+export interface ConversationList {
+  conversations: ConversationListItem[]
+}
+
+export const conversationTitleLimit = 40
+
+// A conversation is titled by its first message, on one line and cut to the title limit.
+export function conversationTitle(text: string) {
+  const line = text.replace(/\s+/gu, ' ').trim()
+  const characters = Array.from(line)
+  return characters.length > conversationTitleLimit ? characters.slice(0, conversationTitleLimit - 1).join('') + '…' : line
+}
+
+// A conversation that has no turns yet is a new conversation: it has an ID but no title until its first message.
 export interface ConversationSnapshot extends PersonalMemorySnapshot {
+  conversationId: string
+  title: string | null
   mode: ConversationMode
   turns: ConversationTurn[]
   reviewInvitation?: ReviewInvitation

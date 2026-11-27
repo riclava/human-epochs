@@ -3,28 +3,35 @@ import type { Pool, PoolClient } from "pg";
 import type { ReviewInvitationCommand } from "../../contracts/conversation.js";
 import { applyReviewInvitationCommand } from "../../review/invitations.js";
 import { inTransaction } from "../../storage/transaction.js";
+import { touchConversation } from "./conversations.js";
 
 export function runReviewInvitationCommand(pool: Pool, userId: string, command: ReviewInvitationCommand, now: Date) {
   return inTransaction(pool, async db => {
     await db.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
-    return applyReviewInvitationCommand(db, userId, command, now,
-      (reviewInvitationId, question) => publishReviewQuestion(db, userId, command.commandId, reviewInvitationId, question));
+    return applyReviewInvitationCommand(db, userId, command, now, (reviewInvitationId, question) =>
+      publishReviewQuestion(db, userId, command.conversationId, command.commandId, reviewInvitationId, question));
   });
 }
 
-async function publishReviewQuestion(db: PoolClient, userId: string, requestId: string, reviewInvitationId: string, question: string) {
+// An invitation belongs to the user, so the question is published in whichever conversation accepted it.
+async function publishReviewQuestion(
+  db: PoolClient, userId: string, conversationId: string, requestId: string, reviewInvitationId: string, question: string,
+) {
+  const { rowCount: generating } = await db.query(`
+    SELECT 1 FROM conversation_turns
+    WHERE user_id = $1 AND conversation_id = $2 AND status = 'pending' AND lease_until > clock_timestamp()
+  `, [userId, conversationId]);
+  if (generating) return false;
+  await touchConversation(db, userId, conversationId, question);
   const questionBlocks = JSON.stringify([{ id: randomUUID(), kind: "text", text: question }]);
   const inserted = await db.query(`
-    WITH published AS (
-      INSERT INTO conversation_turns (user_id, request_id, question_blocks, status, review_invitation_id, kind)
-      SELECT $1::uuid, $2::uuid, $3::jsonb, 'complete', $4::uuid, 'review_question' WHERE NOT EXISTS (
-        SELECT 1 FROM conversation_turns WHERE user_id = $1 AND status = 'pending' AND lease_until > clock_timestamp()
-      ) ON CONFLICT (user_id, request_id) DO NOTHING RETURNING request_id
-    ), closed AS (
-      UPDATE conversation_turns SET status = 'failed', lease_until = NULL
-      WHERE user_id = $1 AND status IN ('pending', 'retryable') AND EXISTS (SELECT 1 FROM published)
-    )
-    SELECT request_id FROM published
-  `, [userId, requestId, questionBlocks, reviewInvitationId]);
-  return inserted.rowCount === 1;
+    INSERT INTO conversation_turns (user_id, conversation_id, request_id, question_blocks, status, review_invitation_id, kind)
+    VALUES ($1, $2, $3, $4, 'complete', $5, 'review_question') ON CONFLICT (user_id, request_id) DO NOTHING
+  `, [userId, conversationId, requestId, questionBlocks, reviewInvitationId]);
+  if (inserted.rowCount !== 1) return false;
+  await db.query(`
+    UPDATE conversation_turns SET status = 'failed', lease_until = NULL
+    WHERE user_id = $1 AND conversation_id = $2 AND status IN ('pending', 'retryable') AND request_id <> $3
+  `, [userId, conversationId, requestId]);
+  return true;
 }

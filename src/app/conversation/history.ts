@@ -24,9 +24,11 @@ export async function readHistory(db: PoolClient, userId: string, requestId: str
         SELECT * FROM chain WHERE request_id <> $2 AND status = 'complete' ORDER BY position DESC LIMIT 60
       )`
     : `WITH recent AS (
-        SELECT * FROM conversation_turns WHERE user_id = $1 AND status = 'complete' AND material_context IS NULL AND review_invitation_id IS NULL
-          AND position < (SELECT position FROM conversation_turns WHERE user_id = $1 AND request_id = $2)
-        ORDER BY position DESC LIMIT 60
+        SELECT t.* FROM conversation_turns t
+        JOIN conversation_turns asked ON asked.user_id = t.user_id AND asked.request_id = $2
+        WHERE t.user_id = $1 AND t.conversation_id = asked.conversation_id AND t.position < asked.position
+          AND t.status = 'complete' AND t.material_context IS NULL AND t.review_invitation_id IS NULL
+        ORDER BY t.position DESC LIMIT 60
       )`
   const history = await db.query<HistoryTurn>(`
     ${scope}

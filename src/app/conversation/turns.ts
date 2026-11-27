@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import {
   conversationContentSchema, type ConversationContent, type ConversationMaterialContext, type ConversationMaterialSelection,
-  type ConversationTurn, type ReviewQuestionTurn, type UserConversationTurn,
+  type ConversationTurn, type ReviewQuestionTurn, type SendConversationCommand, type UserConversationTurn,
 } from "../../contracts/conversation.js";
 import { readReviewInvitations, scheduleReviewInvitation } from "../../review/invitations.js";
 import type { TurnReply } from "../../runtime/run-turn.js";
 import { inTransaction } from "../../storage/transaction.js";
 import { enqueueExtraction } from "../memory-candidates.js";
+import { touchConversation } from "./conversations.js";
 import { enqueueSummary } from "./summaries.js";
 import { discussionChain } from "./history.js";
 import { resolveMaterialContext, namedMaterial } from "./materials.js";
@@ -60,10 +61,10 @@ export async function readDiscussion(db: Pool | PoolClient, userId: string, requ
   return turns.rows.map(row => publicTurn(row));
 }
 
-export async function readTurns(db: PoolClient, userId: string): Promise<ConversationTurn[]> {
+export async function readTurns(db: PoolClient, userId: string, conversationId: string): Promise<ConversationTurn[]> {
   const result = await db.query<StoredTurn>(`
-    SELECT ${columns} FROM conversation_turns WHERE user_id = $1 ORDER BY position
-  `, [userId]);
+    SELECT ${columns} FROM conversation_turns WHERE user_id = $1 AND conversation_id = $2 ORDER BY position
+  `, [userId, conversationId]);
   const ids = [...new Set(result.rows.flatMap(row => row.reviewInvitationId ? [row.reviewInvitationId] : []))];
   const available = new Set((await readReviewInvitations(db, userId, ids)).map(review => review.reviewInvitationId));
   return result.rows.map(row => publicTurn(row, !row.reviewInvitationId || available.has(row.reviewInvitationId)));
@@ -76,20 +77,20 @@ type Receipt =
   | { kind: "invalid_material" | "invalid_review" }
   | ({ kind: "claimed"; materialContext?: ConversationMaterialContext; reviewInvitationId?: string } & Claim);
 
-export function receiveTurn(
-  pool: Pool, userId: string, requestId: string, messageText: string, materialSelection?: ConversationMaterialSelection, reviewInvitationId?: string,
-): Promise<Receipt> {
+export function receiveTurn(pool: Pool, userId: string, command: SendConversationCommand): Promise<Receipt> {
+  const { conversationId, requestId, messageText, materialSelection, reviewInvitationId } = command;
   return inTransaction(pool, async db => {
     // Serialize receipts for this user. The lock ends before model generation.
     await db.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
     const params = [userId, requestId];
-    const existing = (await db.query<StoredTurn & { matches: boolean; attempt: number }>(`
-      SELECT ${columns}, attempt, ($3::jsonb IS NULL OR material_selection = $3::jsonb) AS matches
+    const existing = (await db.query<StoredTurn & { matches: boolean; attempt: number; conversationId: string }>(`
+      SELECT ${columns}, attempt, conversation_id AS "conversationId", ($3::jsonb IS NULL OR material_selection = $3::jsonb) AS matches
       FROM conversation_turns WHERE user_id = $1 AND request_id = $2 FOR UPDATE
     `, [...params, materialSelection ?? null])).rows[0];
 
     if (existing) {
-      if (existing.kind !== "user" || existing.messageText !== messageText || !existing.matches || (reviewInvitationId && reviewInvitationId !== existing.reviewInvitationId)) {
+      if (existing.kind !== "user" || existing.conversationId !== conversationId || existing.messageText !== messageText
+        || !existing.matches || (reviewInvitationId && reviewInvitationId !== existing.reviewInvitationId)) {
         return { kind: "conflict", message: "这条消息已保存，修改内容后请作为新消息发送。" };
       }
       if (existing.status !== "retryable") {
@@ -103,37 +104,40 @@ export function receiveTurn(
       return { kind: "claimed", ...retry.rows[0]!, materialContext: existing.materialContext ?? undefined, reviewInvitationId: existing.reviewInvitationId ?? undefined };
     }
 
+    // Each conversation has at most one reply in progress. Other conversations of the same user are independent.
     const open = (await db.query<StoredTurn>(`
       SELECT ${columns} FROM conversation_turns
-      WHERE user_id = $1 AND status IN ('pending', 'retryable') FOR UPDATE
-    `, [userId])).rows[0];
+      WHERE user_id = $1 AND conversation_id = $2 AND status IN ('pending', 'retryable') FOR UPDATE
+    `, [userId, conversationId])).rows[0];
     if (open?.status === "pending") {
       return { kind: "conflict", message: "上一条消息正在回复。请稍后再发送。" };
     }
 
     const selection = materialSelection ?? (reviewInvitationId ? undefined : namedMaterial(messageText));
-    const materialContext = selection ? await resolveMaterialContext(db, userId, requestId, selection) : null;
+    const materialContext = selection ? await resolveMaterialContext(db, userId, conversationId, requestId, selection) : null;
     if (selection && !materialContext) return { kind: "invalid_material" };
-    if (reviewInvitationId && !await canAnswerReview(db, userId, reviewInvitationId)) return { kind: "invalid_review" };
+    if (reviewInvitationId && !await canAnswerReview(db, userId, conversationId, reviewInvitationId)) return { kind: "invalid_review" };
     if (open) {
       // Close the previous retry before advancing the conversation.
       await db.query(`
         UPDATE conversation_turns SET status = 'failed', lease_until = NULL WHERE user_id = $1 AND request_id = $2
       `, [userId, open.requestId]);
     }
+    await touchConversation(db, userId, conversationId, messageText);
     const inserted = await db.query<Claim>(`
-      INSERT INTO conversation_turns (user_id, request_id, message_text, status, lease_until, material_selection, material_context, review_invitation_id)
-      VALUES ($1, $2, $3, 'pending', ${lease}, $4, $5, $6)
+      INSERT INTO conversation_turns (user_id, conversation_id, request_id, message_text, status, lease_until, material_selection, material_context, review_invitation_id)
+      VALUES ($1, $7, $2, $3, 'pending', ${lease}, $4, $5, $6)
       RETURNING attempt, lease_until AS deadline
-    `, [...params, messageText, selection ?? null, materialContext, reviewInvitationId ?? null]);
+    `, [...params, messageText, selection ?? null, materialContext, reviewInvitationId ?? null, conversationId]);
     return { kind: "claimed", ...inserted.rows[0]!, materialContext: materialContext ?? undefined, reviewInvitationId };
   });
 }
 
-async function canAnswerReview(db: PoolClient, userId: string, reviewInvitationId: string) {
+// A review answer belongs right after its question in the same conversation.
+async function canAnswerReview(db: PoolClient, userId: string, conversationId: string, reviewInvitationId: string) {
   const { rows: [latest] } = await db.query<{ request_id: string }>(`
-    SELECT request_id FROM conversation_turns WHERE user_id = $1 ORDER BY position DESC LIMIT 1
-  `, [userId]);
+    SELECT request_id FROM conversation_turns WHERE user_id = $1 AND conversation_id = $2 ORDER BY position DESC LIMIT 1
+  `, [userId, conversationId]);
   const [review] = await readReviewInvitations(db, userId, [reviewInvitationId]);
   return !!latest && review?.questionRequestId === latest.request_id;
 }

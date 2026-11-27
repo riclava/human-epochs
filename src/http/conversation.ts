@@ -10,7 +10,12 @@ export function registerConversation(
   conversation: ReturnType<typeof createConversationService>,
   activities: Pick<ReturnType<typeof createActivityService>, "startDiscussionActivity">,
 ) {
-  api.get("/conversation", request => conversation.readSnapshot(request.user!.id));
+  api.get("/conversations", request => conversation.listConversations(request.user!.id));
+  api.get<{ Params: { conversationId: string } }>("/conversations/:conversationId", async (request, reply) => {
+    const id = z.uuid().toLowerCase().safeParse(request.params.conversationId);
+    if (!id.success) return reply.code(404).send({ message: "找不到这个对话。" });
+    return conversation.readSnapshot(request.user!.id, id.data);
+  });
   api.get("/conversation/materials", () => conversation.listMaterials());
 
   api.post("/conversation/review-invitations", async (request, reply) => {
@@ -20,7 +25,7 @@ export function registerConversation(
     const result = await conversation.applyReviewInvitationCommand(userId, command.data);
     if (result === "missing") return reply.code(404).send({ message: "这条复习邀请已不可用。" });
     if (result === "conflict") return reply.code(409).send({ message: "对话已更新，请查看最新消息。" });
-    return conversation.readSnapshot(userId);
+    return conversation.readSnapshot(userId, command.data.conversationId);
   });
 
   api.post<{ Params: { requestId: string } }>("/conversation/:requestId/stop", async (request, reply) => {

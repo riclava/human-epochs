@@ -4,9 +4,10 @@ import { HttpError, request } from './api'
 
 const actionLabels = { accept: '试一题', later: '稍后再答', stop: '停止复习提醒' }
 
-export function ReviewInvitationCard({ invitation, userId, disabled, onResult, onStale, onUnauthorized }: {
+export function ReviewInvitationCard({ invitation, userId, conversationId, disabled, onResult, onStale, onUnauthorized }: {
   invitation: ReviewInvitation
   userId: string
+  conversationId: string
   disabled: boolean
   onResult: (snapshot: ConversationSnapshot, action: ReviewInvitationCommand['action'], restoreFocus: boolean) => void
   onStale: (restoreFocus: boolean) => void
@@ -23,7 +24,7 @@ export function ReviewInvitationCard({ invitation, userId, disabled, onResult, o
   async function apply(action: ReviewInvitationCommand['action']) {
     if (active.current || disabled) return
     const command = saved.current?.action === action ? saved.current :
-      { action, commandId: crypto.randomUUID(), reviewInvitationId: invitation.reviewInvitationId }
+      { action, conversationId, commandId: crypto.randomUUID(), reviewInvitationId: invitation.reviewInvitationId }
     saved.current = command
     const controller = new AbortController()
     active.current = controller

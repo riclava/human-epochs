@@ -9,6 +9,7 @@ import { inTransaction } from "../../storage/transaction.js";
 import type { createAgentSettingsService } from "../agent-settings.js";
 import { readPersonalMemories } from "../personal-memories.js";
 import { loadContext } from "./context.js";
+import { listConversations, readConversationTitle } from "./conversations.js";
 import { listMaterials } from "./materials.js";
 import { runReviewInvitationCommand } from "./review-invitations.js";
 import { isActiveAttempt, publishTurn, readTurns, receiveTurn, stopActiveTurn, type TurnMemory } from "./turns.js";
@@ -39,11 +40,12 @@ export function createConversationService(
 
   async function prepareTurn(
     userId: string,
-    { requestId, messageText, materialSelection, reviewInvitationId }: SendConversationCommand,
+    command: SendConversationCommand,
     log: ConversationLog,
   ): Promise<PreparedTurn> {
     const start = performance.now();
-    const receipt = await receiveTurn(pool, userId, requestId, messageText, materialSelection, reviewInvitationId);
+    const { requestId, messageText } = command;
+    const receipt = await receiveTurn(pool, userId, command);
     log({ event: "receipt", elapsedMs: Math.round(performance.now() - start), outcome: receipt.kind,
       attempt: "attempt" in receipt ? receipt.attempt : undefined });
     if (receipt.kind !== "claimed") return receipt;
@@ -102,20 +104,22 @@ export function createConversationService(
     return turn;
   }
 
-  async function readSnapshot(userId: string): Promise<ConversationSnapshot> {
-    const [{ turns, reviewInvitation, personal }, { onlineModelAvailable }] = await Promise.all([inTransaction(pool, async db => {
+  // A conversation that does not exist yet reads as a new, empty conversation.
+  async function readSnapshot(userId: string, conversationId: string): Promise<ConversationSnapshot> {
+    const [{ turns, title, reviewInvitation, personal }, { onlineModelAvailable }] = await Promise.all([inTransaction(pool, async db => {
       await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
-      const turns = await readTurns(db, userId);
+      const turns = await readTurns(db, userId, conversationId);
+      const title = await readConversationTitle(db, userId, conversationId);
       const reviewInvitation = await readDueReviewInvitation(db, userId, now());
       const personal = await readPersonalMemories(db, userId);
-      return { turns, reviewInvitation, personal };
+      return { turns, title, reviewInvitation, personal };
     }), settings.view()]);
     const starter = !turns.length && onlineModelAvailable ? publishedDiscussions[0] : undefined;
-    return { turns, ...personal, mode: onlineModelAvailable ? "model" : "guided", ...(reviewInvitation ? { reviewInvitation } : {}),
+    return { conversationId, title, turns, ...personal, mode: onlineModelAvailable ? "model" : "guided", ...(reviewInvitation ? { reviewInvitation } : {}),
       ...(starter ? { starter: { discussionVersion: starter.discussionVersion, title: starter.title, question: starter.question } } : {}) };
   }
 
-  return { prepareTurn, stopTurn, readSnapshot, listMaterials,
+  return { prepareTurn, stopTurn, readSnapshot, listMaterials, listConversations: (userId: string) => listConversations(pool, userId),
     applyReviewInvitationCommand: (userId: string, command: ReviewInvitationCommand) => runReviewInvitationCommand(pool, userId, command, now()),
   };
 }

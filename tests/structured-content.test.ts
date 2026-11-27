@@ -8,6 +8,9 @@ import { createTestUser, removeTestUser } from './fixtures/activity.js'
 import { readConversationTurn } from './fixtures/conversation-stream.js'
 import { login, useTestDatabase } from './fixtures/test-database.js'
 
+// Every user in this file talks in a conversation with this ID; each user gets their own conversation row.
+const conversationId = randomUUID()
+
 const pool = useTestDatabase()
 
 const excerpt = { label: '借书记录（合成）', text: '小林向馆员借《史记》。馆员查到书已借出，请小林登记预约。小林登记后，馆员说书到了会通知。' }
@@ -35,7 +38,7 @@ test('event logs are verified, published once and read back identically on both 
   const phone = await login(server, user.email)
   const ask = async (cookie: string, requestId: string, messageText: string, materialSelection: object) => {
     const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
-      payload: { requestId, messageText, materialSelection } })
+      payload: { conversationId, requestId, messageText, materialSelection } })
     assert.equal(response.statusCode, 200, response.payload)
     return readConversationTurn(response.payload, String(response.headers['content-type']))
   }
@@ -59,7 +62,7 @@ test('event logs are verified, published once and read back identically on both 
 
   const retried = await ask(phone, rootId, '借书时发生了什么？', { excerpt })
   assert.deepEqual(retried.replyBlocks, first.replyBlocks, 'a completed request replays the same block IDs and order')
-  const phoneView: ConversationSnapshot = (await server.inject({ url: '/api/conversation', headers: { cookie: phone } })).json()
+  const phoneView: ConversationSnapshot = (await server.inject({ url: '/api/conversations/' + conversationId, headers: { cookie: phone } })).json()
   assert.deepEqual((phoneView.turns.at(-1) as UserConversationTurn).replyBlocks, first.replyBlocks)
 
   reply = sourceId => ({ blocks: [{ kind: 'text', text: '预约发生在书已借出之后。', citations: [{ sourceId, quote: '小林登记后' }] }] })
@@ -97,7 +100,7 @@ test('diagrams are verified, published and read back as text for follow-ups', { 
   const cookie = await login(server, user.email)
   const ask = async (requestId: string, messageText: string, materialSelection: object) => {
     const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
-      payload: { requestId, messageText, materialSelection } })
+      payload: { conversationId, requestId, messageText, materialSelection } })
     assert.equal(response.statusCode, 200, response.payload)
     return readConversationTurn(response.payload, String(response.headers['content-type']))
   }
@@ -147,7 +150,7 @@ test('citations placed on events or edges move to the block and are still verifi
   const cookie = await login(server, user.email)
   const ask = async () => {
     const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
-      payload: { requestId: randomUUID(), messageText: '借书时发生了什么？', materialSelection: { excerpt } } })
+      payload: { conversationId, requestId: randomUUID(), messageText: '借书时发生了什么？', materialSelection: { excerpt } } })
     return readConversationTurn(response.payload, String(response.headers['content-type']))
   }
   const cited = (sourceId: string, quote: string) => [{ sourceId, quote }]
@@ -185,7 +188,7 @@ test('ordinary conversation publishes uncited views from fenced replies and read
   const phone = await login(server, user.email)
   const send = async (messageText: string) => {
     const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie: desktop },
-      payload: { requestId: randomUUID(), messageText } })
+      payload: { conversationId, requestId: randomUUID(), messageText } })
     return readConversationTurn(response.payload, String(response.headers['content-type']))
   }
 
@@ -194,7 +197,7 @@ test('ordinary conversation publishes uncited views from fenced replies and read
   assert.deepEqual(first.replyBlocks!.map(block => block.kind), ['text', 'event_log', 'text'])
   const view = first.replyBlocks![1]!
   assert.ok(view.kind === 'event_log' && view.citations === undefined && view.events.length === 2)
-  const phoneView: ConversationSnapshot = (await server.inject({ url: '/api/conversation', headers: { cookie: phone } })).json()
+  const phoneView: ConversationSnapshot = (await server.inject({ url: '/api/conversations/' + conversationId, headers: { cookie: phone } })).json()
   assert.deepEqual((phoneView.turns.at(-1) as UserConversationTurn).replyBlocks, first.replyBlocks)
 
   await send('第三步是什么？')

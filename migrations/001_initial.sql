@@ -71,9 +71,21 @@ CREATE TABLE activity_conversation_turns (
 CREATE INDEX activity_conversation_by_activity ON activity_conversation_turns (activity_id, position);
 CREATE UNIQUE INDEX activity_conversation_one_pending ON activity_conversation_turns (activity_id) WHERE status = 'pending';
 
+CREATE TABLE conversations (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id uuid NOT NULL,
+  title text NOT NULL CHECK (length(title) BETWEEN 1 AND 80),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (user_id, id)
+);
+
+CREATE INDEX conversations_by_recent ON conversations (user_id, updated_at DESC, id);
+
 CREATE TABLE conversation_turns (
   position bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  conversation_id uuid NOT NULL,
   request_id uuid NOT NULL,
   message_text text,
   reply_blocks jsonb CHECK (jsonb_typeof(reply_blocks) = 'array' AND jsonb_array_length(reply_blocks) > 0),
@@ -87,6 +99,7 @@ CREATE TABLE conversation_turns (
   review_invitation_id uuid,
   kind text NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'review_question')),
   UNIQUE (user_id, request_id),
+  FOREIGN KEY (user_id, conversation_id) REFERENCES conversations(user_id, id) ON DELETE CASCADE,
   CHECK ((status = 'pending') = (lease_until IS NOT NULL)),
   CHECK ((material_selection IS NULL) = (material_context IS NULL)),
   CHECK (
@@ -99,9 +112,9 @@ CREATE TABLE conversation_turns (
   )
 );
 
-CREATE UNIQUE INDEX conversation_one_open_turn ON conversation_turns (user_id)
+CREATE UNIQUE INDEX conversation_one_open_turn ON conversation_turns (user_id, conversation_id)
   WHERE status IN ('pending', 'retryable');
-CREATE INDEX conversation_by_user_position ON conversation_turns (user_id, position);
+CREATE INDEX conversation_by_position ON conversation_turns (user_id, conversation_id, position);
 CREATE INDEX conversation_discussion_history ON conversation_turns (user_id, (material_context->>'discussionId'), position)
   WHERE material_context IS NOT NULL;
 
