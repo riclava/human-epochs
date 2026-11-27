@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg'
 import type { PersonalMemoryCommand, PersonalMemory, PersonalMemorySnapshot } from '../contracts/personal-memory.js'
 import { inTransaction } from '../storage/transaction.js'
 import { acceptCandidate, readCandidateState, rejectCandidate, setSuggestions } from './memory-candidates.js'
+import { selectMemories } from './memory-relevance.js'
 
 const columns = `id, revision, kind, body, topic, authorized_for_tutoring AS "authorizedForTutoring", expires_at AS "expiresAt",
   source_request_id AS "sourceRequestId"`
@@ -18,6 +19,8 @@ export async function readPersonalMemories(db: Pool | PoolClient, userId: string
   return { memories: result.rows, ...await readCandidateState(db, userId) }
 }
 
+// Reads the memories this purpose may use, then keeps the few that relate to the question. Ranking happens in code so
+// the same rule also fences replies derived from memories in the history.
 export async function recallPersonalMemories(
   db: PoolClient, userId: string, purpose: 'tutoring', question: string,
 ): Promise<PersonalMemory[]> {
@@ -25,10 +28,9 @@ export async function recallPersonalMemories(
     SELECT ${columns} FROM personal_memories
     WHERE user_id = $1 AND body IS NOT NULL AND authorized_for_tutoring AND $2 = 'tutoring'
       AND (expires_at IS NULL OR expires_at > clock_timestamp())
-      AND (topic = '' OR strpos(lower($3), lower(topic)) > 0)
-    ORDER BY (topic <> '') DESC, updated_at DESC, id LIMIT 8
-  `, [userId, purpose, question])
-  return result.rows
+    ORDER BY updated_at DESC, id LIMIT 200
+  `, [userId, purpose])
+  return selectMemories(question, result.rows)
 }
 
 async function invalidateMemory(db: PoolClient, userId: string, id: string) {

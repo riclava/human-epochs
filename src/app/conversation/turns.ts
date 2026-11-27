@@ -67,7 +67,20 @@ export async function readTurns(db: PoolClient, userId: string, conversationId: 
   `, [userId, conversationId]);
   const ids = [...new Set(result.rows.flatMap(row => row.reviewInvitationId ? [row.reviewInvitationId] : []))];
   const available = new Set((await readReviewInvitations(db, userId, ids)).map(review => review.reviewInvitationId));
-  return result.rows.map(row => publicTurn(row, !row.reviewInvitationId || available.has(row.reviewInvitationId)));
+  const used = await readMemoryUse(db, userId, result.rows.map(row => row.requestId));
+  return result.rows.map(row => {
+    const turn = publicTurn(row, !row.reviewInvitationId || available.has(row.reviewInvitationId));
+    const memoryIds = used.get(row.requestId);
+    return turn.kind === "user" && memoryIds ? { ...turn, memoryIds } : turn;
+  });
+}
+
+async function readMemoryUse(db: PoolClient, userId: string, requestIds: string[]) {
+  const { rows } = await db.query<{ requestId: string; memoryIds: string[] }>(`
+    SELECT request_id AS "requestId", array_agg(memory_id ORDER BY memory_id) AS "memoryIds" FROM conversation_memory_sources
+    WHERE user_id = $1 AND request_id = ANY($2::uuid[]) GROUP BY request_id
+  `, [userId, requestIds]);
+  return new Map(rows.map(row => [row.requestId, row.memoryIds]));
 }
 
 type Claim = { attempt: number; deadline: Date };

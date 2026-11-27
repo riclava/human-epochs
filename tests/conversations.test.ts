@@ -116,3 +116,34 @@ test('a material follow-up continues only a discussion in the same conversation'
   assert.equal((await turnOf(await api.send(home, '接着说', { materialSelection: { parentRequestId: rootId } }))).status, 'complete')
   assert.equal((await api.send(randomUUID(), '接着说', { materialSelection: { parentRequestId: rootId } })).statusCode, 400)
 })
+
+test('a memory saved in one conversation helps a related question in another and is shown on the reply', { timeout: 10_000 }, async t => {
+  const user = await createTestUser(pool)
+  t.after(() => removeTestUser(pool, user.id))
+  const inputs: string[] = []
+  const server = createApp(pool, async ({ messages }) => {
+    inputs.push(JSON.stringify(messages))
+    return { kind: 'text', text: '好的。' }
+  })
+  t.after(() => server.close())
+  const cookie = await login(server, user.email)
+  const api = client(server, cookie)
+  const first = randomUUID()
+  const source = await turnOf(await api.send(first, '我的雅思口语是最弱的一项。'))
+  const saved = await server.inject({ method: 'POST', url: '/api/personal-memories', headers: { cookie }, payload: {
+    operation: 'remember', commandId: randomUUID(), kind: 'statement', body: '我的雅思口语是最弱的一项。', topic: '雅思',
+    authorizedForTutoring: true, expiresAt: null, sourceRequestId: source.requestId,
+  } })
+  assert.equal(saved.statusCode, 200, saved.payload)
+  const memoryId = saved.json().memories[0].id
+
+  const second = randomUUID()
+  await turnOf(await api.send(second, '口语怎么练比较快？'))
+  assert.ok(inputs.at(-1)!.includes('口语是最弱'), 'a related question uses the memory without naming its topic')
+  const [reply] = (await api.snapshot(second)).turns
+  assert.ok(reply?.kind === 'user')
+  assert.deepEqual(reply.memoryIds, [memoryId])
+
+  await turnOf(await api.send(second, '怎么批量重命名照片文件？'))
+  assert.ok(!inputs.at(-1)!.includes('口语是最弱'), 'an unrelated question leaves the topical memory out')
+})

@@ -155,6 +155,8 @@ export interface UserConversationTurn {
   status: 'pending' | 'retryable' | 'failed' | 'stopped' | 'complete'
   materialContext?: ConversationMaterialContext
   explanationSource?: 'model' | 'course' | 'excerpt'
+  // Personal memories the published reply was given. Only the conversation snapshot carries them.
+  memoryIds?: string[]
 }
 
 export interface ReviewQuestionTurn {

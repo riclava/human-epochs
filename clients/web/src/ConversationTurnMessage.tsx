@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import type { ConversationCitation, ConversationSource, ConversationTurn } from '../../../src/contracts/conversation'
+import type { PersonalMemory } from '../../../src/contracts/personal-memory'
 import { Diagram } from './Diagram'
 import { EventLog } from './EventLog'
 import { previewReplyText } from './reply-preview'
@@ -34,8 +35,10 @@ function SourceQuotes({ sources }: { sources: ConversationSource[] }) {
   </figure>)}</>
 }
 
-export function ConversationTurnMessage({ turn, status, preview, memory }: {
+export function ConversationTurnMessage({ turn, status, preview, memory, usedMemories = [] }: {
   turn: ConversationTurn; status?: ReactNode; preview?: string; memory?: ReactNode
+  // Memories this reply was given that the user can still see. Forgotten ones are gone from the snapshot.
+  usedMemories?: PersonalMemory[]
 }) {
   const explanationSource = turn.kind === 'user' ? turn.explanationSource : undefined
   const source = explanationSource && { model: '在线解释', course: '课程导读', excerpt: '原文摘录' }[explanationSource]
@@ -57,6 +60,10 @@ export function ConversationTurnMessage({ turn, status, preview, memory }: {
           <Citations citations={block.kind === 'excerpt' ? [block.source] : block.citations} />
         </div>
       }) : preview ? <ReplyMarkdown text={previewReplyText(preview)} streaming /> : status}
+      {blocks && usedMemories.length > 0 && <details className="used-memories">
+        <summary>参考了 {usedMemories.length} 条记忆</summary>
+        <ul>{usedMemories.map(record => <li key={record.id}>{record.body}</li>)}</ul>
+      </details>}
     </div>
   </div>
 }

@@ -755,3 +755,21 @@ test('新建对话、在侧栏切换，手机打开最近的对话', async ({ pa
   await expect(log(phone).getByText('我想学会看星图。', { exact: true })).toHaveCount(1)
   expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
+
+test('回复下方列出参考过的记忆，忘记后不再显示', async ({ page, user }) => {
+  const conversationId = await publishReply(user.pool, user.id, '口语怎么练比较快？', [{ id: randomUUID(), kind: 'text', text: '先每天开口十分钟。' }])
+  const { rows: [turn] } = await user.pool.query('SELECT request_id FROM conversation_turns WHERE conversation_id = $1', [conversationId])
+  const memoryId = randomUUID()
+  await user.pool.query(`INSERT INTO personal_memories (user_id, id, kind, body, topic, authorized_for_tutoring) VALUES ($1, $2, 'statement', '我的雅思口语是最弱的一项。', '雅思', true)`, [user.id, memoryId])
+  await user.pool.query('INSERT INTO conversation_memory_sources (user_id, request_id, memory_id) VALUES ($1, $2, $3)', [user.id, turn.request_id, memoryId])
+
+  await signIn(page, user.email)
+  const used = log(page).getByRole('group').filter({ hasText: '参考了 1 条记忆' })
+  await used.getByText('参考了 1 条记忆').click()
+  await expect(used).toContainText('我的雅思口语是最弱的一项。')
+
+  await user.pool.query('UPDATE personal_memories SET body = NULL WHERE id = $1', [memoryId])
+  await page.reload()
+  await expect(log(page)).toContainText('先每天开口十分钟。')
+  await expect(log(page).getByText(/参考了 \d+ 条记忆/u)).toHaveCount(0)
+})

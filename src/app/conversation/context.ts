@@ -77,7 +77,7 @@ async function buildHistory(
   const user = await db.query<{ memory_revision: number }>('SELECT memory_revision FROM users WHERE id = $1', [userId]);
   const memoryRevision = user.rows[0]!.memory_revision;
   const summary = await readSummary(db, userId, memoryRevision, base.prefix.map(turn => turn.requestId));
-  const records = material ? [] : (await recallPersonalMemories(db, userId, "tutoring", question.content)).slice(0, 4);
+  const records = material ? [] : await recallPersonalMemories(db, userId, "tutoring", question.content);
   const notes = summary?.summary.notes ?? [];
   const { reference, reserved, memoryIds: referenceMemoryIds } = selectReference(notes, records, Math.min(6000, bytes - historySize(question)));
   const selected = reserved ? selectHistory(turns, question, bytes - reserved, material) : base;

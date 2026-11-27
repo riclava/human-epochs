@@ -66,6 +66,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
   const activeReviewInvitationId = latest?.kind === 'review_question' ? latest.reviewInvitationId : undefined
   const memoriesBySource = useMemo(() => groupBySource(snapshot?.memories ?? []), [snapshot?.memories])
   const candidatesBySource = useMemo(() => groupBySource(snapshot?.candidates ?? []), [snapshot?.candidates])
+  const memoriesById = useMemo(() => new Map((snapshot?.memories ?? []).map(record => [record.id, record])), [snapshot?.memories])
   const memoryActions = { userId, onUnauthorized, onSaved: conversation.memorySaved, onReload: conversation.refresh }
 
   useLayoutEffect(() => {
@@ -136,6 +137,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
               suggestionsEnabled={snapshot.suggestionsEnabled} />}
             <div className="conversation-log" role="log" aria-label="对话记录" aria-relevant="additions text">
               {items.map(({ turn, status, preview, progress }) => <ConversationTurnMessage key={turn.requestId} turn={turn}
+                usedMemories={turn.kind === 'user' ? (turn.memoryIds ?? []).flatMap(id => memoriesById.get(id) ?? []) : []}
                 memory={turn.status === 'complete' && turn.kind === 'user' && <PersonalMemorySection {...memoryActions}
                   source={turn} memories={memoriesBySource.get(turn.requestId) ?? []}
                   candidates={candidatesBySource.get(turn.requestId) ?? []} />}
