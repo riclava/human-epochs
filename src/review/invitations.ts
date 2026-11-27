@@ -8,17 +8,19 @@ interface StoredReviewInvitation {
   originRequestId: string;
   proposal: ReviewProposal;
   questionRequestId: string | null;
-  discussionVersion: string;
+  discussionVersion: string | null;
   sources: ConversationSource[];
+  conversationTitle: string | null;
 }
 
 const reviewRows = `
   SELECT r.id AS "reviewInvitationId", r.origin_request_id AS "originRequestId", r.proposal,
     r.question_request_id AS "questionRequestId", origin.material_context->>'discussionVersion' AS "discussionVersion",
-    origin.material_context->'sources' AS sources
+    origin.material_context->'sources' AS sources, conversation.title AS "conversationTitle"
   FROM review_invitations r
   JOIN conversation_turns origin ON origin.user_id = r.user_id AND origin.request_id = r.origin_request_id
   JOIN conversation_turns evidence ON evidence.user_id = r.user_id AND evidence.request_id = r.id
+  LEFT JOIN conversations conversation ON conversation.user_id = r.user_id AND conversation.id = origin.conversation_id
   WHERE r.user_id = $1 AND NOT r.cancelled AND origin.status = 'complete' AND evidence.status = 'complete'
     AND NOT origin.reply_blocks @> '[{"kind":"unavailable"}]'
     AND NOT evidence.reply_blocks @> '[{"kind":"unavailable"}]'`;
@@ -27,14 +29,22 @@ function sameSource(a: ConversationSource, b: ConversationSource) {
   return a.id === b.id && a.label === b.label && a.text === b.text;
 }
 
-export function matchesPublishedDiscussionSource(discussionVersion: string, source: ConversationSource) {
+// A course source must still match the published course, so a course update retires reviews of old wording.
+// A source the user brought (an "excerpt:" ID) is checked against the discussion's own snapshot only; a course source
+// that is no longer published is not valid.
+export function reviewSourceValid(discussionVersion: string | null, source: ConversationSource) {
   const discussion = publishedDiscussions.find(item => item.discussionVersion === discussionVersion);
-  return discussion && [...discussion.sources, ...discussion.supplements].some(item => sameSource(item, source));
+  const published = discussion && [...discussion.sources, ...discussion.supplements].find(item => item.id === source.id);
+  return published ? sameSource(published, source) : source.id.startsWith("excerpt:");
+}
+
+// The review's evidence must be one of the sources its discussion read, verbatim, and still be valid.
+export function reviewSourceAvailable(discussionVersion: string | null, sources: ConversationSource[] | undefined, source: ConversationSource) {
+  return !!sources?.some(candidate => sameSource(candidate, source)) && reviewSourceValid(discussionVersion, source);
 }
 
 function sourceAvailable(review: StoredReviewInvitation) {
-  return review.sources?.some(source => sameSource(source, review.proposal.source)) &&
-    matchesPublishedDiscussionSource(review.discussionVersion, review.proposal.source);
+  return reviewSourceAvailable(review.discussionVersion, review.sources, review.proposal.source);
 }
 
 export async function readReviewInvitations(db: Pool | PoolClient, userId: string, ids: string[]) {
@@ -47,7 +57,8 @@ export async function readDueReviewInvitation(db: PoolClient, userId: string, no
   const result = await db.query<StoredReviewInvitation>(reviewRows + ` AND r.question_request_id IS NULL AND r.due_at <= $2
     AND EXISTS (SELECT 1 FROM users WHERE id = $1 AND review_reminders_enabled)`, [userId, now]);
   const review = result.rows.find(sourceAvailable);
-  if (review) return { reviewInvitationId: review.reviewInvitationId, topic: review.proposal.topic, sourceLabel: review.proposal.source.label };
+  if (review) return { reviewInvitationId: review.reviewInvitationId, topic: review.proposal.topic, sourceLabel: review.proposal.source.label,
+    conversationTitle: review.conversationTitle };
 }
 
 export async function reviewRemindersEnabled(db: PoolClient, userId: string) {
@@ -59,9 +70,9 @@ export async function reviewRemindersEnabled(db: PoolClient, userId: string) {
 
 export async function scheduleReviewInvitation(
   db: PoolClient, userId: string, evidenceId: string, originRequestId: string,
-  discussionVersion: string, proposal: ReviewProposal, now: Date,
+  discussion: { discussionVersion: string | null; sources: ConversationSource[] }, proposal: ReviewProposal, now: Date,
 ) {
-  if (!matchesPublishedDiscussionSource(discussionVersion, proposal.source) || !await reviewRemindersEnabled(db, userId)) return;
+  if (!reviewSourceAvailable(discussion.discussionVersion, discussion.sources, proposal.source) || !await reviewRemindersEnabled(db, userId)) return;
   const { rows: [pending] } = await db.query<{ id: string }>(`
     SELECT id FROM review_invitations WHERE user_id = $1 AND question_request_id IS NULL AND NOT cancelled
   `, [userId]);

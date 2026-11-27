@@ -177,6 +177,8 @@ export interface ReviewInvitation {
   reviewInvitationId: string
   topic: string
   sourceLabel: string
+  // The conversation where the reviewed discussion happened. Reviews can be answered in any conversation.
+  conversationTitle: string | null
 }
 
 export const reviewInvitationCommandSchema = z.strictObject({

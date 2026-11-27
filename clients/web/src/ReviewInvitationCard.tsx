@@ -50,7 +50,7 @@ export function ReviewInvitationCard({ invitation, userId, conversationId, disab
   }
 
   return <section className="review-invite" aria-label="复习邀请" ref={region} aria-busy={pending !== null}>
-    <p>要不要用一道题复习「{invitation.topic}」？ <span>来自{invitation.sourceLabel}</span></p>
+    <p>要不要用一道题复习「{invitation.topic}」？ <span>来自{invitation.sourceLabel}{invitation.conversationTitle && <>，对话「{invitation.conversationTitle}」</>}</span></p>
     <div className="review-actions">
       {(Object.entries(actionLabels) as [ReviewInvitationCommand['action'], string][]).map(([action, label]) => (
         <button type="button" key={action} className={action === 'accept' ? 'primary' : undefined}

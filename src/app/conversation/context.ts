@@ -3,7 +3,7 @@ import type { AgentSettings } from "../../contracts/agent-settings.js";
 import { conversationContentText, type ConversationMaterialContext } from "../../contracts/conversation.js";
 import type { PersonalMemory } from "../../contracts/personal-memory.js";
 import { publishedDiscussions } from "../../courses/catalog.js";
-import { matchesPublishedDiscussionSource, readReviewInvitations, reviewRemindersEnabled } from "../../review/invitations.js";
+import { readReviewInvitations, reviewRemindersEnabled, reviewSourceValid } from "../../review/invitations.js";
 import { limitModelHistory } from "../../runtime/model-history.js";
 import type { ConversationMessage } from "../../runtime/model.js";
 import type { TurnContext } from "../../runtime/run-turn.js";
@@ -36,7 +36,9 @@ export function loadContext(
     const prior = await readHistory(db, userId, requestId, text, !!materialContext);
     const { history, reference, memory } = await buildHistory(db, userId, prior, question, settings.historyBytes, !!materialContext, online);
     const publication = materialContext && publishedDiscussions.find(item => item.discussionVersion === materialContext.discussionVersion);
-    const offer = online && publication && !reference && materialContext.sources.every(source => matchesPublishedDiscussionSource(publication.discussionVersion, source))
+    // Any material whose sources are still valid can be reviewed later, whether it is a course or the user's own text.
+    const offer = online && materialContext && !reference
+      && materialContext.sources.every(source => reviewSourceValid(materialContext.discussionVersion, source))
       && await reviewRemindersEnabled(db, userId);
 
     const context: TurnContext = materialContext

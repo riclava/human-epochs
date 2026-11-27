@@ -229,9 +229,10 @@ export function publishTurn(
     if (published.rows[0]) {
       if (replyBlocks && memory) await recordMemoryUse(db, userId, requestId, memory, memoryRevision);
       if (replyBlocks && extractMemories) await enqueueExtraction(db, userId, requestId);
-      const discussionVersion = review?.discussionVersion ?? published.rows[0].materialContext?.discussionVersion;
-      if (output?.review && discussionVersion) {
-        await scheduleReviewInvitation(db, userId, requestId, review?.originRequestId ?? requestId, discussionVersion, output.review, now);
+      // A review answer keeps the original discussion as its evidence; a new discussion offers its own sources.
+      const discussion = review ?? published.rows[0].materialContext;
+      if (output?.review && discussion) {
+        await scheduleReviewInvitation(db, userId, requestId, review?.originRequestId ?? requestId, discussion, output.review, now);
       }
       return { turn: publicTurn(published.rows[0]), outcome: invalidMemory ? "memory_invalidated" : "written" } as const;
     }

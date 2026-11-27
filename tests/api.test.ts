@@ -118,7 +118,8 @@ test('AI review schedules from a course and resumes, defers, answers and stops t
   assert.equal((await snapshot()).reviewInvitation, undefined)
   advance(48)
   const invitation = (await snapshot(phone)).reviewInvitation!
-  assert.deepEqual(invitation, { reviewInvitationId: invitation.reviewInvitationId, topic, sourceLabel: source.label })
+  assert.deepEqual(invitation, { reviewInvitationId: invitation.reviewInvitationId, topic, sourceLabel: source.label,
+    conversationTitle: `聊聊《${discussion.title}》` })
   assert.equal((await operate(command('accept', invitation.reviewInvitationId), desktop, stranger)).statusCode, 404)
   const defer = command('later', invitation.reviewInvitationId)
   assert.equal((await operate(defer)).statusCode, 200)
