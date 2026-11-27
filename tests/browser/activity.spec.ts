@@ -623,3 +623,40 @@ test('两端开启记忆提议，确认后才保存为记忆', async ({ page, ph
   expect(snapshot.candidates).toEqual([])
   expect(snapshot.memories).toEqual([expect.objectContaining({ sourceRequestId: original.requestId, kind: 'wish' })])
 })
+
+test('事件块在桌面显示时序图，在窄屏和放大文字时显示同一份事件列表', async ({ page, phone, user }) => {
+  // Rendering is checked from a published reply. Verification and fallback are covered by the API tests.
+  const replyBlocks = [{
+    id: randomUUID(), kind: 'event_log', title: '借书时的往来', view: 'sequence',
+    participants: [{ id: 'lin', label: '小林' }, { id: 'staff', label: '馆员' }],
+    events: [
+      { id: 'e1', from: 'lin', to: 'staff', text: '借《史记》' },
+      { id: 'e2', from: 'staff', to: 'lin', text: '书已借出，请登记预约' },
+      { id: 'e3', from: 'lin', text: '登记预约' },
+    ],
+    citations: [{ sourceId: 'notes', label: '借书记录（合成）', quote: '馆员查到书已借出，请小林登记预约。' }],
+  }]
+  await user.pool.query(`
+    INSERT INTO conversation_turns (user_id, request_id, message_text, reply_blocks, status)
+    VALUES ($1, $2, '借书时发生了什么？', $3, 'complete')
+  `, [user.id, randomUUID(), JSON.stringify(replyBlocks)])
+  const figure = (device: Page) => log(device).getByRole('figure', { name: '借书时的往来' })
+  const steps = ['小林 → 馆员借《史记》', '馆员 → 小林书已借出，请登记预约', '小林登记预约']
+
+  await signIn(page, user.email)
+  await expect(figure(page).getByRole('list', { name: '参与方' })).toBeVisible()
+  await expect(figure(page).locator('.event-log-events > li')).toHaveText(steps)
+  await expect(figure(page).locator('li[data-direction="backward"]')).toHaveCount(1)
+  await expect(log(page).getByRole('group', { name: '引文' })).toContainText('借书记录（合成）')
+
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+  await expect(figure(page).getByRole('list', { name: '参与方' })).toBeHidden()
+  await expect(figure(page).locator('.event-log-actors').first()).toBeVisible()
+  await page.evaluate(() => { document.documentElement.style.fontSize = '' })
+
+  await signIn(phone, user.email)
+  await expect(figure(phone).getByRole('list', { name: '参与方' })).toBeHidden()
+  await expect(figure(phone).locator('.event-log-events > li')).toHaveText(steps)
+  await expect(figure(phone).locator('.event-log-actors').first()).toBeVisible()
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})

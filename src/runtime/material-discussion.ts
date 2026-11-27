@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { AgentSettings } from "../contracts/agent-settings.js";
-import type { ConversationCitation, ConversationContentDraft, ConversationProgress, ConversationSource, UserConversationTurn } from "../contracts/conversation.js";
+import {
+  conversationContentDraftSchema, type ConversationCitation, type ConversationContentDraft, type ConversationProgress,
+  type ConversationSource, type UserConversationTurn,
+} from "../contracts/conversation.js";
 import { reviewProposal, type ReviewProposal } from "../review/proposal.js";
 import type { ObserveRun } from "./diagnostics.js";
 import { runMaterialModel } from "./material-model.js";
@@ -20,12 +23,18 @@ export interface MaterialPublication {
 }
 
 const referenceSchema = z.strictObject({ sourceId: z.string(), quote: z.string().trim().min(1).max(1200) });
+const citationsSchema = z.array(referenceSchema).min(1).max(8);
 const explanationSchema = z.strictObject({
   blocks: z.array(z.discriminatedUnion("kind", [z.strictObject({
     kind: z.literal("text"),
     text: z.string().trim().min(1).max(800).refine(text => !/[\u0000\uD800-\uDFFF]/u.test(text)),
-    citations: z.array(referenceSchema).min(1).max(8),
-  }), z.strictObject({ kind: z.literal("excerpt"), source: referenceSchema })])).min(1).max(6),
+    citations: citationsSchema,
+  }), z.strictObject({ kind: z.literal("excerpt"), source: referenceSchema }),
+  // Structure is checked by the shared contract after citations are verified.
+  z.strictObject({
+    kind: z.literal("event_log"), title: z.string(), view: z.string(),
+    participants: z.array(z.unknown()), events: z.array(z.unknown()), citations: citationsSchema,
+  })])).min(1).max(6),
   review: z.unknown().optional(),
   reviewAnswered: z.unknown().optional(),
 });
@@ -38,25 +47,42 @@ function verifyCitation(reference: z.infer<typeof referenceSchema>, sources: Con
   return source?.text.includes(reference.quote) ? { sourceId: source.id, label: source.label, quote: reference.quote } : null;
 }
 
+// Text in Chinese or straight quotation marks claims to be quoted, so it must appear in a readable source.
+function quotesAreSourced(text: string, sources: ConversationSource[]) {
+  return Array.from(text.matchAll(/“([^”]+)”|"([^"]+)"/gu))
+    .every(match => sources.some(source => source.text.includes(match[1] ?? match[2]!)));
+}
+
+function verifyCitations(references: z.infer<typeof citationsSchema>, sources: ConversationSource[]) {
+  const citations: ConversationCitation[] = [];
+  for (const reference of references) {
+    const citation = verifyCitation(reference, sources);
+    if (!citation) return null;
+    if (!citations.some(item => item.sourceId === citation.sourceId && item.quote === citation.quote)) citations.push(citation);
+  }
+  return citations;
+}
+
+function verifiedBlock(block: z.infer<typeof explanationSchema>["blocks"][number], sources: ConversationSource[]): ConversationContentDraft | null {
+  if (block.kind === "excerpt") {
+    const source = verifyCitation(block.source, sources);
+    return source && { kind: "excerpt", source };
+  }
+  const citations = verifyCitations(block.citations, sources);
+  if (!citations) return null;
+  if (block.kind === "text") return quotesAreSourced(block.text, sources) ? { kind: "text", text: block.text, citations } : null;
+  const parsed = conversationContentDraftSchema.safeParse({ ...block, citations });
+  if (!parsed.success || parsed.data.kind !== "event_log") return null;
+  const texts = [parsed.data.title, ...parsed.data.events.map(event => event.text)];
+  return texts.every(text => quotesAreSourced(text, sources)) ? parsed.data : null;
+}
+
 function verifiedExplanation(blocks: z.infer<typeof explanationSchema>["blocks"], sources: ConversationSource[]): MaterialExplanation | null {
   const replyBlocks: ConversationContentDraft[] = [];
   for (const block of blocks) {
-    if (block.kind === "excerpt") {
-      const source = verifyCitation(block.source, sources);
-      if (!source) return null;
-      replyBlocks.push({ kind: "excerpt", source });
-      continue;
-    }
-    const citations: ConversationCitation[] = [];
-    for (const match of block.text.matchAll(/“([^”]+)”|"([^"]+)"/gu)) {
-      if (!sources.some(source => source.text.includes(match[1] ?? match[2]))) return null;
-    }
-    for (const reference of block.citations) {
-      const citation = verifyCitation(reference, sources);
-      if (!citation) return null;
-      if (!citations.some(item => item.sourceId === citation.sourceId && item.quote === citation.quote)) citations.push(citation);
-    }
-    replyBlocks.push({ kind: "text", text: block.text, citations });
+    const verified = verifiedBlock(block, sources);
+    if (!verified) return null;
+    replyBlocks.push(verified);
   }
   return { replyBlocks, explanationSource: "model" };
 }

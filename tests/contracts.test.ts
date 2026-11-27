@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { RequestHintCommandSchema } from '../src/contracts/activity.js'
 import { defaultAgentSettings, saveAgentSettingsRequestSchema } from '../src/contracts/agent-settings.js'
-import { reviewInvitationCommandSchema, sendConversationCommandSchema } from '../src/contracts/conversation.js'
+import { conversationContentSchema, conversationContentText, reviewInvitationCommandSchema, sendConversationCommandSchema } from '../src/contracts/conversation.js'
 import { personalMemoryCommandSchema } from '../src/contracts/personal-memory.js'
 
 const id = '00000000-0000-4000-8000-000000000001'
@@ -32,4 +32,26 @@ test('conversation, review, settings and memory commands reject obsolete field n
   assert.equal(saveAgentSettingsRequestSchema.safeParse({ ...settings, revision: 0 }).success, false)
   assert.equal(personalMemoryCommandSchema.safeParse({ ...memory, expectedRevision: 1 }).success, true)
   assert.equal(personalMemoryCommandSchema.safeParse({ ...memory, revision: 1 }).success, false)
+})
+
+test('event log blocks reject broken references, unknown views and duplicate IDs', () => {
+  const block = {
+    id, kind: 'event_log', title: '借书', view: 'sequence',
+    participants: [{ id: 'lin', label: '小林' }, { id: 'staff', label: '馆员' }],
+    events: [{ id: 'e1', from: 'lin', to: 'staff', text: '借书' }, { id: 'e2', from: 'staff', text: '查找' }],
+    citations: [{ sourceId: 'notes', label: '记录', quote: '小林借书。' }],
+  }
+  const parse = (value: object) => conversationContentSchema.safeParse([value]).success
+  assert.equal(parse(block), true)
+  assert.equal(parse({ ...block, view: 'list' }), true)
+  assert.equal(parse({ ...block, view: 'chart' }), false)
+  assert.equal(parse({ ...block, citations: [] }), false)
+  assert.equal(parse({ ...block, events: [{ id: 'e1', from: 'lin', to: 'reader', text: '借书' }] }), false)
+  assert.equal(parse({ ...block, events: [{ id: 'e1', from: 'nobody', text: '借书' }] }), false)
+  assert.equal(parse({ ...block, events: [block.events[0], { ...block.events[1], id: 'e1' }] }), false)
+  assert.equal(parse({ ...block, participants: [block.participants[0], { id: 'lin', label: '另一个' }] }), false)
+  assert.equal(parse({ ...block, participants: [] }), false)
+  assert.equal(parse({ ...block, events: [{ id: 'e 1', from: 'lin', text: '借书' }] }), false)
+  assert.equal(conversationContentSchema.safeParse([block, { ...block }]).success, false, 'block IDs stay unique')
+  assert.equal(conversationContentText(conversationContentSchema.parse([block])), '借书\n1. 小林 → 馆员：借书\n2. 馆员：查找')
 })

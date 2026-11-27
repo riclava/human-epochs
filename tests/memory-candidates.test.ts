@@ -1,47 +1,18 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { after, before, test } from 'node:test'
-import { Pool } from 'pg'
+import { test } from 'node:test'
 import { createApp } from '../src/app/create-app.js'
 import { processNextMemoryExtraction } from '../src/app/memory-extraction.js'
 import { defaultAgentSettings } from '../src/contracts/agent-settings.js'
 import type { ConversationSnapshot } from '../src/contracts/conversation.js'
 import type { MemoryExtraction, PersonalMemorySnapshot } from '../src/contracts/personal-memory.js'
 import type { ModelClient } from '../src/runtime/model.js'
-import { migrate } from '../src/storage/migrate.js'
-import { seed } from '../src/storage/seed.js'
 import { createTestUser, removeTestUser } from './fixtures/activity.js'
 import { readConversationTurn } from './fixtures/conversation-stream.js'
+import { login, useTestDatabase } from './fixtures/test-database.js'
 
-const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) throw new Error('Set DATABASE_URL before running database tests')
-const admin = new Pool({ connectionString: databaseUrl })
-const databaseName = 'human_epochs_test_' + randomUUID().replaceAll('-', '')
-const testUrl = new URL(databaseUrl)
-testUrl.pathname = '/' + databaseName
-const pool = new Pool({ connectionString: testUrl.toString() })
-let created = false
-
-before(async () => {
-  await admin.query('CREATE DATABASE "' + databaseName + '"')
-  created = true
-  await migrate(pool)
-  await seed(pool)
-})
-
-after(async () => {
-  await pool.end()
-  if (created) await admin.query('DROP DATABASE "' + databaseName + '"')
-  await admin.end()
-})
-
+const pool = useTestDatabase()
 type Server = ReturnType<typeof createApp>
-
-async function login(server: Server, email: string) {
-  const response = await server.inject({ method: 'POST', url: '/api/login', payload: { email, password: 'HumanEpochs-demo-1!' } })
-  assert.equal(response.statusCode, 200)
-  return String(response.headers['set-cookie']).split(';')[0]!
-}
 
 async function send(server: Server, cookie: string, messageText: string) {
   const response = await server.inject({ method: 'POST', url: '/api/conversation', headers: { cookie },
