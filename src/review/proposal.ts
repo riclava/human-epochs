@@ -17,3 +17,23 @@ export function reviewProposal(value: unknown, sources: ConversationSource[]): R
   const source = sources.find(candidate => candidate.id === sourceId && candidate.text.includes(draft.quote));
   if (source) return { ...draft, source };
 }
+
+export const reviewOutcomes = ["recalled", "partial", "forgotten"] as const;
+export type ReviewOutcomeResult = typeof reviewOutcomes[number];
+const outcomeSchema = z.strictObject({ result: z.enum(reviewOutcomes), note: text(200) });
+export type ReviewOutcome = z.infer<typeof outcomeSchema>;
+
+// How well an answer recalled the reviewed point, as judged by the model giving feedback.
+export function reviewOutcome(value: unknown): ReviewOutcome | undefined {
+  const parsed = outcomeSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+// The next interval follows the result: a forgotten point comes back soon, a recalled one waits longer.
+// The model proposes the days; these bounds keep the proposal pointing the same way as the result.
+const intervalBounds: Record<ReviewOutcomeResult, [number, number]> = { forgotten: [1, 2], partial: [2, 7], recalled: [4, 30] };
+
+export function intervalForOutcome(afterDays: number, result: ReviewOutcomeResult) {
+  const [low, high] = intervalBounds[result];
+  return Math.min(high, Math.max(low, afterDays));
+}

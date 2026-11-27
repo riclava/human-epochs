@@ -73,6 +73,10 @@ export async function scheduleReviewInvitation(
   discussion: { discussionVersion: string | null; sources: ConversationSource[] }, proposal: ReviewProposal, now: Date,
 ) {
   if (!reviewSourceAvailable(discussion.discussionVersion, discussion.sources, proposal.source) || !await reviewRemindersEnabled(db, userId)) return;
+  const { rowCount: stopped } = await db.query(
+    "SELECT 1 FROM review_topic_stops WHERE user_id = $1 AND origin_request_id = $2", [userId, originRequestId],
+  );
+  if (stopped) return;
   const { rows: [pending] } = await db.query<{ id: string }>(`
     SELECT id FROM review_invitations WHERE user_id = $1 AND question_request_id IS NULL AND NOT cancelled
   `, [userId]);

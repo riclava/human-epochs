@@ -5,6 +5,8 @@ import {
   type ConversationTurn, type ReviewQuestionTurn, type SendConversationCommand, type UserConversationTurn,
 } from "../../contracts/conversation.js";
 import { readReviewInvitations, scheduleReviewInvitation } from "../../review/invitations.js";
+import { recordReviewAttempt } from "../../review/learning-record.js";
+import { intervalForOutcome } from "../../review/proposal.js";
 import type { TurnReply } from "../../runtime/run-turn.js";
 import { inTransaction } from "../../storage/transaction.js";
 import { enqueueExtraction } from "../memory-candidates.js";
@@ -231,8 +233,14 @@ export function publishTurn(
       if (replyBlocks && extractMemories) await enqueueExtraction(db, userId, requestId);
       // A review answer keeps the original discussion as its evidence; a new discussion offers its own sources.
       const discussion = review ?? published.rows[0].materialContext;
-      if (output?.review && discussion) {
-        await scheduleReviewInvitation(db, userId, requestId, review?.originRequestId ?? requestId, discussion, output.review, now);
+      if (review && output?.reviewOutcome) {
+        await recordReviewAttempt(db, userId, requestId, review.reviewInvitationId, output.reviewOutcome, now);
+      }
+      // After an answer, the next interval follows how well the point was recalled.
+      const proposal = output?.review && output.reviewOutcome
+        ? { ...output.review, afterDays: intervalForOutcome(output.review.afterDays, output.reviewOutcome.result) } : output?.review;
+      if (proposal && discussion) {
+        await scheduleReviewInvitation(db, userId, requestId, review?.originRequestId ?? requestId, discussion, proposal, now);
       }
       return { turn: publicTurn(published.rows[0]), outcome: invalidMemory ? "memory_invalidated" : "written" } as const;
     }

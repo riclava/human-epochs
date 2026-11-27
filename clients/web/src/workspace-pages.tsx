@@ -3,6 +3,10 @@ import type { ComponentType, ReactNode } from 'react'
 import type { User } from '../../../src/contracts/session'
 import { AgentSettings } from './AgentSettings'
 import { ConversationView } from './ConversationView'
+import { LearningRecordView } from './LearningRecordView'
+import { conversationRoute } from './routes'
+
+export { conversationHref, conversationRoute } from './routes'
 
 export interface WorkspacePageProps {
   userId: string
@@ -25,13 +29,6 @@ interface WorkspacePage {
   matches?: (hash: string) => boolean
 }
 
-const conversationPath = /^#\/c\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/u
-
-export const conversationHref = (conversationId: string) => `#/c/${conversationId}` as const
-
-export function conversationRoute(hash: string) {
-  return conversationPath.exec(hash.toLowerCase())?.[1] ?? null
-}
 
 const conversation: WorkspacePage = {
   href: '#/',
@@ -44,7 +41,17 @@ const conversation: WorkspacePage = {
   matches: hash => hash === '' || hash === '#/' || conversationRoute(hash) !== null,
 }
 
-const pages: readonly WorkspacePage[] = [conversation, {
+const learning: WorkspacePage = {
+  href: '#/learning',
+  title: '学习记录',
+  paneClassName: 'settings-pane',
+  icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z" /><path d="M5 17a3 3 0 0 1 3-3h11M9 8h6" />
+  </svg>,
+  View: LearningRecordView,
+}
+
+const pages: readonly WorkspacePage[] = [conversation, learning, {
   href: '#/settings',
   title: '运行设置',
   paneClassName: 'settings-pane',

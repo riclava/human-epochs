@@ -158,6 +158,29 @@ CREATE TABLE review_invitation_command_receipts (
   PRIMARY KEY (user_id, command_id)
 );
 
+-- One row per answered review question: how well the user recalled it, and why the model judged so.
+CREATE TABLE review_attempts (
+  user_id uuid NOT NULL,
+  request_id uuid NOT NULL,
+  review_invitation_id uuid NOT NULL,
+  outcome text NOT NULL CHECK (outcome IN ('recalled', 'partial', 'forgotten')),
+  note text NOT NULL CHECK (length(note) BETWEEN 1 AND 200),
+  answered_at timestamptz NOT NULL,
+  PRIMARY KEY (user_id, request_id),
+  FOREIGN KEY (user_id, request_id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id, review_invitation_id) REFERENCES review_invitations(user_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX review_attempts_by_invitation ON review_attempts (user_id, review_invitation_id);
+
+-- Discussions the user no longer wants reviewed. New proposals from them are not scheduled.
+CREATE TABLE review_topic_stops (
+  user_id uuid NOT NULL,
+  origin_request_id uuid NOT NULL,
+  PRIMARY KEY (user_id, origin_request_id),
+  FOREIGN KEY (user_id, origin_request_id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE
+);
+
 CREATE TABLE discussion_activities (
   user_id uuid NOT NULL,
   discussion_id uuid NOT NULL,

@@ -10,10 +10,12 @@ import type { createActivityService } from "../app/activities/service.js";
 import type { createAgentSettingsService } from "../app/agent-settings.js";
 import type { createConversationService } from "../app/conversation/service.js";
 import type { createPersonalMemoryService } from "../app/personal-memories.js";
+import type { createLearningService } from "../app/learning-record.js";
 import { registerActivities } from "./activities.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { registerConversation } from "./conversation.js";
 import { registerPersonalMemories } from "./personal-memories.js";
+import { registerLearningRecord } from "./learning-record.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -33,9 +35,10 @@ interface HttpServices {
   activities: ReturnType<typeof createActivityService>;
   settings: ReturnType<typeof createAgentSettingsService>;
   personalMemories: ReturnType<typeof createPersonalMemoryService>;
+  learning: ReturnType<typeof createLearningService>;
 }
 
-export function createHttpApp({ auth, conversation, activities, settings, personalMemories }: HttpServices, logger: FastifyServerOptions["logger"] = false) {
+export function createHttpApp({ auth, conversation, activities, settings, personalMemories, learning }: HttpServices, logger: FastifyServerOptions["logger"] = false) {
   const app = Fastify({ logger, logController: new LogController({ disableRequestLogging: true }) });
   app.register(cookie);
   app.register(async api => {
@@ -75,6 +78,7 @@ export function createHttpApp({ auth, conversation, activities, settings, person
       registerActivities(authenticated, activities);
       registerAgentSettings(authenticated, settings);
       registerPersonalMemories(authenticated, personalMemories);
+      registerLearningRecord(authenticated, learning);
     });
   }, { prefix: "/api" });
 

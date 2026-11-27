@@ -3,7 +3,7 @@ import type { FormEvent, MouseEvent } from 'react'
 import { conversationTitleLimit } from '../../../src/contracts/conversation'
 import type { ConversationList, ConversationListItem } from '../../../src/contracts/conversation'
 import { HttpError, request } from './api'
-import { conversationHref } from './workspace-pages'
+import { conversationHref } from './routes'
 
 type Unsent = { operation: 'rename'; title: string } | { operation: 'delete' }
 type Pending = { key: string; commandId: string }

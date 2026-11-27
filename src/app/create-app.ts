@@ -10,6 +10,7 @@ import { createConversationService } from "./conversation/service.js";
 import { processNextSummary } from "./conversation/summaries.js";
 import { processNextMemoryExtraction } from "./memory-extraction.js";
 import { createPersonalMemoryService } from "./personal-memories.js";
+import { createLearningService } from "./learning-record.js";
 
 export function createApp(
   pool: Pool, model: ModelClient | null, settingsAdminEmails?: string, modelOptions?: ModelOptions,
@@ -23,6 +24,7 @@ export function createApp(
     conversation: createConversationService(pool, settings, reviewNow),
     activities: createActivityService(pool),
     personalMemories: createPersonalMemoryService(pool),
+    learning: createLearningService(pool),
     settings,
   }, logger);
   if (backgroundJobs) attachBackgroundWorker(app, [

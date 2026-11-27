@@ -897,3 +897,40 @@ test('附加 PDF 时选择页码范围，Word 读取正文，读不出文字时�
   await dialog.getByRole('button', { name: '附加', exact: true }).click()
   await expect(page.locator('.material-status')).toContainText('已附原文：long（节选）（32,000 字）')
 })
+
+test('学习记录列出复习结果和下次时间，可以停止一个主题并回到原对话', async ({ page, phone, user }) => {
+  const source = { id: 'excerpt:' + randomUUID(), label: '实验室安全规程', text: '离心结束后等待转子完全停止再开盖取出样品。' }
+  const conversationId = await publishReply(user.pool, user.id, '离心机什么时候能开盖？', [{ id: randomUUID(), kind: 'text', text: '要等转子停稳。' }])
+  const { rows: [origin] } = await user.pool.query('SELECT request_id FROM conversation_turns WHERE conversation_id = $1', [conversationId])
+  await user.pool.query(`UPDATE conversation_turns SET material_selection = '{}', material_context = $2 WHERE request_id = $1`,
+    [origin.request_id, JSON.stringify({ discussionVersion: null, discussionId: origin.request_id, sources: [source] })])
+  const proposal = { topic: '离心机开盖时机', question: '什么时候能开盖？', answer: '转子停稳后。', afterDays: 3, quote: source.text, source }
+  await user.pool.query(`INSERT INTO review_invitations (user_id, id, origin_request_id, due_at, proposal, question_request_id)
+    VALUES ($1, $2, $2, '2026-12-01T08:00:00Z', $3, $2)`, [user.id, origin.request_id, JSON.stringify(proposal)])
+  await user.pool.query(`INSERT INTO review_attempts (user_id, request_id, review_invitation_id, outcome, note, answered_at)
+    VALUES ($1, $2, $2, 'partial', '说出了要停下，但没提到完全停止。', '2026-12-02T08:00:00Z')`, [user.id, origin.request_id])
+  const next = randomUUID()
+  await user.pool.query(`INSERT INTO conversation_turns (user_id, conversation_id, request_id, message_text, reply_blocks, status)
+    VALUES ($1, $2, $3, '答案', $4, 'complete')`, [user.id, conversationId, next, JSON.stringify([{ id: randomUUID(), kind: 'text', text: '好的。' }])])
+  await user.pool.query(`INSERT INTO review_invitations (user_id, id, origin_request_id, due_at, proposal)
+    VALUES ($1, $2, $3, '2099-01-05T08:00:00Z', $4)`, [user.id, next, origin.request_id, JSON.stringify(proposal)])
+
+  await signIn(page, user.email)
+  await page.getByRole('link', { name: '学习记录' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: '学习记录' })).toBeVisible()
+  const card = page.getByRole('article', { name: '离心机开盖时机' })
+  await expect(card).toContainText('来自实验室安全规程')
+  await expect(card.getByRole('list', { name: '复习结果' })).toContainText('部分答出')
+  await expect(card.getByRole('list', { name: '复习结果' })).toContainText('说出了要停下，但没提到完全停止。')
+  await expect(card).toContainText('下次复习：2099年1月5日')
+  await card.getByRole('button', { name: '不再复习这个主题' }).click()
+  await expect(card).toContainText('已停止复习这个主题。')
+  await expect(card.getByRole('button', { name: '不再复习这个主题' })).toHaveCount(0)
+  await card.getByRole('link', { name: '离心机什么时候能开盖？' }).click()
+  await expect(log(page).getByText('要等转子停稳。')).toBeVisible()
+
+  await signIn(phone, user.email)
+  await phone.goto('/#/learning')
+  await expect(phone.getByRole('article', { name: '离心机开盖时机' })).toContainText('已停止复习这个主题。')
+  expect(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})

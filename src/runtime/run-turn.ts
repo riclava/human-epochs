@@ -1,5 +1,5 @@
 import type { ConversationContentDraft, ConversationMode, ConversationProgress, UserConversationTurn } from "../contracts/conversation.js";
-import type { ReviewProposal } from "../review/proposal.js";
+import type { ReviewOutcome, ReviewProposal } from "../review/proposal.js";
 import { defaultAgentSettings, type AgentSettings } from "../contracts/agent-settings.js";
 import type { ObserveRun } from "./diagnostics.js";
 import { splitConversationReply } from "./conversation-blocks.js";
@@ -18,6 +18,7 @@ export interface TurnReply {
   replyBlocks: ConversationContentDraft[];
   explanationSource?: UserConversationTurn["explanationSource"];
   review?: ReviewProposal;
+  reviewOutcome?: ReviewOutcome;
 }
 
 type TurnResult =
@@ -97,8 +98,8 @@ export function createTurnRunner(model: ModelClient | null, now = Date.now) {
           break;
         }
         case "material": {
-          const { replyBlocks, explanationSource, review } = await discussMaterial(context.publication, context.prompt, callModel, settings, options);
-          output = { replyBlocks, explanationSource, ...(review ? { review } : {}) };
+          const { replyBlocks, explanationSource, review, reviewOutcome } = await discussMaterial(context.publication, context.prompt, callModel, settings, options);
+          output = { replyBlocks, explanationSource, ...(review ? { review } : {}), ...(reviewOutcome ? { reviewOutcome } : {}) };
           break;
         }
       }
