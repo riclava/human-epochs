@@ -362,7 +362,8 @@ button:disabled { cursor: not-allowed; }
 }
 .diagram { container-type: inline-size; margin: var(--space-3) 0 0; }
 .diagram figcaption { font-weight: 600; line-height: 1.4; }
-.diagram-drawing { display: none; }
+.diagram-scroll { display: none; }
+.diagram-drawing { display: block; max-width: none; }
 .diagram-relations { margin: var(--space-2) 0 0; padding-inline-start: var(--space-6); line-height: 1.6; overflow-wrap: anywhere; }
 .diagram-relations li + li { margin-block-start: var(--space-1); }
 .diagram-node { fill: var(--color-subtle); stroke: var(--color-border); stroke-width: 1; }
@@ -372,10 +373,23 @@ button:disabled { cursor: not-allowed; }
 .diagram-edge { fill: none; stroke: var(--color-accent); stroke-width: 1.5; }
 .diagram-arrowhead { fill: var(--color-accent); }
 
-/* Like event logs, the drawing needs room. Enlarged text raises the threshold and keeps the relation list. */
+/* Like event logs, the drawing needs room. Enlarged text raises the threshold and keeps the relation list.
+   A drawing wider than the message keeps its natural size and scrolls inside a focusable region. */
 @container (min-width: 36rem) {
-  .diagram-drawing { display: block; width: 100%; height: auto; margin-block-start: var(--space-2); }
+  .diagram-scroll { display: block; overflow-x: auto; margin-block-start: var(--space-2); border-radius: var(--radius-control); }
+  .diagram-scroll:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
   .diagram-relations { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* High-contrast modes ignore author colours on SVG fills, so map the drawing to system colours. */
+@media (forced-colors: active) {
+  .diagram-node, .diagram-edge-label-bg { fill: Canvas; stroke: CanvasText; }
+  .diagram-node-label, .diagram-edge-label, .diagram-arrowhead { fill: CanvasText; }
+  .diagram-edge { stroke: CanvasText; }
+  .event-log[data-view="sequence"] .event-log-events li { border-color: CanvasText; }
+  .event-log[data-view="sequence"] li:not([data-direction="self"])::after { forced-color-adjust: none; }
+  .event-log[data-view="sequence"] li[data-direction="forward"]::after { border-inline-start-color: CanvasText; }
+  .event-log[data-view="sequence"] li[data-direction="backward"]::after { border-inline-start-color: transparent; border-inline-end-color: CanvasText; }
 }
 .turn-status { color: var(--color-muted); font-size: var(--text-small); }
 .turn-status button { margin-inline-start: var(--space-2); }

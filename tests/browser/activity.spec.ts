@@ -667,6 +667,11 @@ test('关系图在桌面显示图形，在窄屏和放大文字时显示同一�
     nodes: [{ id: 'ask', label: '借书' }, { id: 'reserve', label: '登记预约' }, { id: 'notify', label: '到书通知' }],
     edges: [{ from: 'ask', to: 'reserve', label: '书已借出' }, { from: 'reserve', to: 'notify' }, { from: 'notify', to: 'ask', label: '再借' }],
     citations: [{ sourceId: 'notes', label: '借书记录（合成）', quote: '小林登记后，馆员说书到了会通知。' }],
+  }, {
+    id: randomUUID(), kind: 'diagram', title: '六种借阅方式',
+    nodes: [{ id: 'start', label: '选择方式' }, ...['a', 'b', 'c', 'd', 'e', 'f'].map(id => ({ id, label: '方式' + id }))],
+    edges: ['a', 'b', 'c', 'd', 'e', 'f'].map(id => ({ from: 'start', to: id })),
+    citations: [{ sourceId: 'notes', label: '借书记录（合成）', quote: '小林登记后，馆员说书到了会通知。' }],
   }]
   await user.pool.query(`
     INSERT INTO conversation_turns (user_id, request_id, message_text, reply_blocks, status)
@@ -680,6 +685,14 @@ test('关系图在桌面显示图形，在窄屏和放大文字时显示同一�
   await expect(figure(page).locator('svg .diagram-node')).toHaveCount(3)
   await expect(figure(page).locator('svg .diagram-edge')).toHaveCount(3)
   await expect(figure(page).getByRole('list', { name: '关系' }).getByRole('listitem')).toHaveText(relations)
+  await expect(figure(page).getByRole('region')).toHaveCount(0)
+  const wide = log(page).getByRole('figure', { name: '六种借阅方式' }).getByRole('region', { name: /可横向滚动/u })
+  await expect(wide).toBeVisible()
+  expect(await wide.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await wide.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => wide.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
 
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
   await expect(figure(page).locator('svg.diagram-drawing')).toBeHidden()
