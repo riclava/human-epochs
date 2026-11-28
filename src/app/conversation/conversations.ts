@@ -9,13 +9,15 @@ export async function isDeletedConversation(db: Pool | PoolClient, userId: strin
 }
 
 // Creates the conversation on its first turn and marks it as recently used on every later turn.
-// The title comes from the first turn only. A deleted conversation is never recreated.
-export async function touchConversation(db: PoolClient, userId: string, conversationId: string, firstText: string) {
+// The title and goal come from the first turn only; the goal must be the user's own. A deleted conversation is never
+// recreated.
+export async function touchConversation(db: PoolClient, userId: string, conversationId: string, firstText: string, goalId?: string) {
   if (await isDeletedConversation(db, userId, conversationId)) return false;
   await db.query(`
-    INSERT INTO conversations (user_id, id, title) VALUES ($1, $2, $3)
+    INSERT INTO conversations (user_id, id, title, goal_id)
+    VALUES ($1, $2, $3, (SELECT id FROM learning_goals WHERE user_id = $1 AND id = $4))
     ON CONFLICT (user_id, id) DO UPDATE SET updated_at = clock_timestamp()
-  `, [userId, conversationId, conversationTitle(firstText) || "新对话"]);
+  `, [userId, conversationId, conversationTitle(firstText) || "新对话", goalId ?? null]);
   return true;
 }
 

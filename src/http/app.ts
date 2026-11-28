@@ -16,6 +16,7 @@ import type { createMaterialLibrary } from "../app/material-library.js";
 import type { createLearningGoalService } from "../app/learning-goals.js";
 import { registerLearningGoals } from "./learning-goals.js";
 import { registerConversationSearch } from "./conversation-search.js";
+import { registerToday } from "./today.js";
 import { registerAccountRecovery, registerVerificationResend } from "./account-recovery.js";
 import type { createAccountRecovery } from "../app/account-recovery.js";
 import { registerActivities } from "./activities.js";
@@ -52,6 +53,8 @@ interface HttpServices {
   pool: Pool;
   registration: RegistrationPolicy;
   recovery: ReturnType<typeof createAccountRecovery>;
+  // The clock reviews are due by.
+  now: () => Date;
 }
 
 export interface HttpOptions {
@@ -69,7 +72,7 @@ const signInFailures = () => ({
 });
 
 export function createHttpApp(
-  { auth, conversation, activities, settings, personalMemories, learning, materials, goals, pool, registration, recovery }: HttpServices,
+  { auth, conversation, activities, settings, personalMemories, learning, materials, goals, pool, registration, recovery, now }: HttpServices,
   { logger = false, trustProxy = false, production = false }: HttpOptions = {},
 ) {
   // A hop count trusts that many proxies nearest the server.
@@ -138,6 +141,7 @@ export function createHttpApp(
       registerMaterialLibrary(authenticated, materials);
       registerLearningGoals(authenticated, goals);
       registerConversationSearch(authenticated, pool);
+      registerToday(authenticated, pool, now);
       registerVerificationResend(authenticated, recovery);
       registerAccountCommands(authenticated, pool);
     });

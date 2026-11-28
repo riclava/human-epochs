@@ -25,8 +25,9 @@ async function signIn(page: Page, email: string) {
   await page.getByLabel('邮箱', { exact: true }).fill(email)
   await page.getByLabel('密码', { exact: true }).fill(password)
   await page.getByRole('button', { name: '进入对话' }).click()
-  await page.waitForURL(/#\/c\/[0-9a-f-]{36}$/u)
-  await expect(page.getByRole('button', { name: '发送消息' })).toBeEnabled()
+  // Today opens instead when something waits there, such as an open goal proposal.
+  await page.waitForURL(/#\/(?:c\/[0-9a-f-]{36}|today)$/u)
+  if (!page.url().endsWith('#/today')) await expect(page.getByRole('button', { name: '发送消息' })).toBeEnabled()
 }
 
 test('Agent 提议的学习目标可以一键设为目标，并在学习目标页修改、暂停和删除', async ({ page, browser, baseURL, playwright, user }) => {

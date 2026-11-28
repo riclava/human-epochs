@@ -93,7 +93,7 @@ type Receipt =
   | ({ kind: "claimed"; materialContext?: StoredMaterialContext; reviewInvitationId?: string } & Claim);
 
 export function receiveTurn(pool: Pool, userId: string, command: SendConversationCommand): Promise<Receipt> {
-  const { conversationId, requestId, messageText, materialSelection, reviewInvitationId } = command;
+  const { conversationId, requestId, messageText, materialSelection, reviewInvitationId, goalId } = command;
   return inTransaction(pool, async db => {
     // Serialize receipts for this user. The lock ends before model generation.
     await db.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
@@ -139,7 +139,7 @@ export function receiveTurn(pool: Pool, userId: string, command: SendConversatio
         UPDATE conversation_turns SET status = 'failed', lease_until = NULL WHERE user_id = $1 AND request_id = $2
       `, [userId, open.requestId]);
     }
-    await touchConversation(db, userId, conversationId, messageText);
+    await touchConversation(db, userId, conversationId, messageText, goalId);
     const inserted = await db.query<Claim>(`
       INSERT INTO conversation_turns (user_id, conversation_id, request_id, message_text, status, lease_until, material_selection, material_context, review_invitation_id)
       VALUES ($1, $7, $2, $3, 'pending', ${lease}, $4, $5, $6)

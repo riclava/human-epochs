@@ -37,6 +37,7 @@ export function createApp(
     settings,
     pool,
     registration,
+    now: reviewNow ?? (() => new Date()),
     recovery: createAccountRecovery(pool, mail, error => app.log.error({ err: error }, "mail failed")),
   }, { logger, trustProxy, production });
   if (backgroundJobs) attachBackgroundWorker(app, [

@@ -44,6 +44,8 @@ export const sendConversationCommandSchema = z.strictObject({
   messageText: clean(conversationTextLimit),
   materialSelection: conversationMaterialSelectionSchema.optional(),
   reviewInvitationId: requestId.optional(),
+  // A new conversation can start under one of the user's goals. Ignored once the conversation exists.
+  goalId: requestId.optional(),
 }).refine(message => !(message.reviewInvitationId && message.materialSelection))
 export type SendConversationCommand = z.infer<typeof sendConversationCommandSchema>
 

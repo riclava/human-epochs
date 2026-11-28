@@ -94,6 +94,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
   }, [latest?.requestId, latest?.status, activeId, conversation.scrollPreview, reviewInvitation?.reviewInvitationId])
 
   const targetTurn = useTurnTarget(!!snapshot, followLatest)
+  const startingGoal = draft.goalId ? learningGoals.goals?.find(goal => goal.id === draft.goalId) : undefined
 
   function send(message: UnsentMessage) {
     if (!canSend) return
@@ -117,7 +118,8 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
     const reviewInvitationId = draft.requestId ? draft.reviewInvitationId : activeReviewInvitationId
     const materialSelection = draft.requestId ? draft.materialSelection
       : reviewInvitationId ? undefined : materialSelectionFor(discussion, draft.attachment, !!draft.leaveDiscussion)
-    const message = { requestId: draft.requestId ?? crypto.randomUUID(), messageText, reviewInvitationId, materialSelection }
+    const goalId = hasHistory ? undefined : draft.goalId
+    const message = { requestId: draft.requestId ?? crypto.randomUUID(), messageText, reviewInvitationId, materialSelection, ...(goalId ? { goalId } : {}) }
     conversation.saveDraft({ ...draft, ...message })
     send(message)
   }
@@ -163,6 +165,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
               <div className="conversation-welcome">
                 <h2>从一个问题开始</h2>
                 <p>{snapshot?.mode === 'guided' ? '说说你想弄懂什么，一起理清目标和第一步。' : '可以直接提问，也可以贴一段原文来讨论。'}</p>
+                {startingGoal && <p className="conversation-goal-note">这段对话会归入学习目标「{startingGoal.title}」。</p>}
                 {snapshot?.starter && !draft.messageText && <button className="conversation-starter" type="button" disabled={!canSend}
                   onClick={() => startMaterial(snapshot.starter!)}>聊聊《{snapshot.starter.title}》</button>}
               </div>
@@ -207,7 +210,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
                 : discussion && !draft.leaveDiscussion ? '接着问问这份材料…' : hasHistory ? '继续聊聊你的想法…' : '比如，我想学会看懂一张星图'}
               aria-invalid={invalid || undefined} aria-describedby={sendError || invalid ? 'conversation-send-error' : 'conversation-send-help'}
               readOnly={!!activeId} onChange={event => {
-                conversation.saveDraft({ messageText: event.target.value, attachment: draft.attachment, leaveDiscussion: draft.leaveDiscussion })
+                conversation.saveDraft({ messageText: event.target.value, attachment: draft.attachment, leaveDiscussion: draft.leaveDiscussion, goalId: draft.goalId })
                 conversation.clearSendError()
                 setInvalid(false)
               }} onKeyDown={event => {

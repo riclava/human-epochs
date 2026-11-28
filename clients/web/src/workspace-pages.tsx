@@ -5,6 +5,7 @@ import { AccountView } from './AccountView'
 import { AgentSettings } from './AgentSettings'
 import { ConversationView } from './ConversationView'
 import { LearningGoalsView } from './LearningGoalsView'
+import { TodayView } from './TodayView'
 import { LearningRecordView } from './LearningRecordView'
 import { MaterialLibraryView } from './MaterialLibraryView'
 import { ConversationSearchView } from './ConversationSearchView'
@@ -93,7 +94,17 @@ const search: WorkspacePage = {
   matches: hash => searchRoute(hash) !== null,
 }
 
-const pages: readonly WorkspacePage[] = [conversation, search, goals, learning, materials, {
+const today: WorkspacePage = {
+  href: '#/today',
+  title: '今天',
+  paneClassName: 'settings-pane',
+  icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <rect x="4" y="5" width="16" height="15" rx="2" /><path d="M4 10h16M9 3v4M15 3v4" />
+  </svg>,
+  View: TodayView,
+}
+
+const pages: readonly WorkspacePage[] = [today, conversation, search, goals, learning, materials, {
   href: '#/settings',
   title: '运行设置',
   paneClassName: 'settings-pane',

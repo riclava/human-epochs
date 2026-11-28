@@ -11,11 +11,22 @@ const DraftSchema = z.strictObject({
     z.strictObject({ materialId: z.uuid(), label: z.string(), length: z.int() }),
   ]).optional(),
   leaveDiscussion: z.boolean().optional(),
+  // The learning goal a new conversation starts under, chosen before its first message.
+  goalId: z.uuid().optional(),
 })
 type Draft = z.infer<typeof DraftSchema>
 
+const draftKey = (userId: string, conversationId: string) => 'human-epochs:conversation-draft:' + userId + ':' + conversationId
+
+// Opens a new conversation that will start under a goal, as "接着学" on the Today page does.
+export function startConversationUnderGoal(userId: string, conversationId: string, goalId: string) {
+  try {
+    sessionStorage.setItem(draftKey(userId, conversationId), JSON.stringify({ messageText: '', goalId }))
+  } catch { /* Without storage the conversation simply starts outside the goal. */ }
+}
+
 export function useConversationDraft(userId: string, conversationId: string) {
-  const key = 'human-epochs:conversation-draft:' + userId + ':' + conversationId
+  const key = draftKey(userId, conversationId)
   const [draft, setDraft] = useState<Draft>(() => {
     try {
       const saved = DraftSchema.safeParse(JSON.parse(sessionStorage.getItem(key) ?? 'null'))
@@ -28,7 +39,7 @@ export function useConversationDraft(userId: string, conversationId: string) {
     currentDraft.current = value
     setDraft(value)
     try {
-      if (value.messageText || value.attachment || value.leaveDiscussion) sessionStorage.setItem(key, JSON.stringify(value))
+      if (value.messageText || value.attachment || value.leaveDiscussion || value.goalId) sessionStorage.setItem(key, JSON.stringify(value))
       else sessionStorage.removeItem(key)
     } catch { /* Editing and sending still work without browser storage. */ }
   }, [key])

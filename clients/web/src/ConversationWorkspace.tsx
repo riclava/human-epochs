@@ -3,6 +3,8 @@ import type { MouseEvent, ReactNode } from 'react'
 import type { User } from '../../../src/contracts/session'
 import { ConversationListPanel } from './ConversationListPanel'
 import { useConversationList } from './useConversationList'
+import { hasTodayContent, type TodayView } from '../../../src/contracts/today'
+import { request } from './api'
 import { conversationHref, useWorkspacePages } from './workspace-pages'
 
 export function ConversationWorkspace({ user, onUnauthorized, onAccountChanged, onAccountDeleted, onSignOut, brand }: {
@@ -29,11 +31,30 @@ export function ConversationWorkspace({ user, onUnauthorized, onAccountChanged, 
     previousLocation.current = location
   }, [location, home.href])
 
-  // The conversation page without an ID opens the most recent conversation, or a new one when there is none.
+  // Opening the workspace without an address goes to Today when something is waiting there, and otherwise to the most
+  // recent conversation, or a new one when there is none. Only the first visit is diverted: choosing "对话" later opens
+  // a conversation.
+  // Entering through any other address already counts as having entered.
+  const enteredWorkspace = useRef(!['', '#/'].includes(window.location.hash))
   useEffect(() => {
     if (current !== home || conversationId || !conversations.loaded) return
-    window.location.replace(conversationHref(conversations.items[0]?.conversationId ?? crypto.randomUUID()))
-  }, [current, home, conversationId, conversations.loaded, conversations.items])
+    const open = (hash: string) => {
+      enteredWorkspace.current = true
+      window.location.replace(hash)
+    }
+    const latest = () => open(conversationHref(conversations.items[0]?.conversationId ?? crypto.randomUUID()))
+    if (enteredWorkspace.current) return latest()
+    // Marked only once the answer arrives, so a cancelled check does not skip Today.
+    const controller = new AbortController()
+    request('/today', { headers: { 'X-User-Id': user.id }, signal: controller.signal })
+      .then(response => response.json() as Promise<TodayView>)
+      .then(view => {
+        if (controller.signal.aborted) return
+        if (hasTodayContent(view)) open('#/today')
+        else latest()
+      }, () => { if (!controller.signal.aborted) latest() })
+    return () => controller.abort()
+  }, [current, home, conversationId, conversations.loaded, conversations.items, user.id])
 
   function onNavigationClick(event: MouseEvent<HTMLAnchorElement>) {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return

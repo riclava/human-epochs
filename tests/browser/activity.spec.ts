@@ -39,10 +39,10 @@ async function signIn(page: Page, email: string, path = '/') {
   await page.getByLabel('邮箱', { exact: true }).fill(email)
   await page.getByLabel('密码', { exact: true }).fill(password)
   await page.getByRole('button', { name: '进入对话' }).click()
-  // The conversation page opens the latest conversation, or a new one, at its own address.
-  if (path === '/') await page.waitForURL(/#\/c\/[0-9a-f-]{36}$/u)
+  // Signing in opens Today when something waits there, and otherwise the latest conversation or a new one.
+  if (path === '/') await page.waitForURL(/#\/(?:c\/[0-9a-f-]{36}|today)$/u)
   await expect(page.getByRole('main')).toBeVisible()
-  await expect(send(page)).toBeEnabled()
+  if (!page.url().endsWith('#/today')) await expect(send(page)).toBeEnabled()
 }
 
 function conversationIdOf(page: Page) {
@@ -427,6 +427,12 @@ test('到期复习邀请出现在原对话，窄屏键盘可以接受并跨端�
     expect(due.rowCount).toBe(1)
 
     await signIn(phone, user.email)
+    // A due review brings the phone to Today, which leads back to the conversation the review came from.
+    await expect(phone).toHaveURL(/#\/today$/u)
+    const today = phone.getByRole('region', { name: '复习到期' })
+    await expect(today).toContainText('亲历和转述')
+    await today.getByRole('link', { name: '开始复习' }).click()
+    await expect(send(phone)).toBeEnabled()
     const invite = phone.getByRole('region', { name: '复习邀请' })
     await expect(invite).toContainText('亲历和转述')
     await expect(invite).toContainText(source.label)
@@ -630,6 +636,10 @@ test('两端开启记忆提议，确认后才保存为记忆', async ({ page, ph
   `, [user.id, randomUUID(), original.requestId])
 
   await signIn(phone, user.email)
+  // The open suggestion brings the phone to Today, which links to the message it came from.
+  await expect(phone).toHaveURL(/#\/today$/u)
+  await phone.getByRole('region', { name: '待确认' }).getByRole('link', { name: /记忆提议/u }).click()
+  await expect(send(phone)).toBeEnabled()
   const source = (device: Page) => log(device).locator('.user-message').filter({ hasText: text })
   await source(phone).getByRole('button', { name: '查看记忆提议（1）' }).click()
   const proposals = source(phone).getByRole('list', { name: 'Agent 的记忆提议' })
