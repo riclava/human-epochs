@@ -12,6 +12,8 @@ export interface MaterialPrompt {
   memory?: string;
   offerReview?: true;
   review?: { question: string; answer: string };
+  // The active learning goal of the conversation, given with a review so a recalled answer can update its progress.
+  currentGoal?: { title: string; motivation: string; progress: string };
 }
 
 export interface ToolCall {

@@ -28,10 +28,12 @@ export function loadContext(
       if (!review) throw new Error("Review source unavailable");
       const { source, question: reviewQuestion, answer } = review.proposal;
       const offer = online && await reviewRemindersEnabled(db, userId);
+      const goal = online ? await readConversationGoal(db, userId, requestId) : undefined;
       const context: TurnContext = { kind: "material", prompt: {
         question: text, history: [question], sources: [source], ...(offer ? { offerReview: true } : {}),
         review: { question: reviewQuestion, answer },
-      } };
+        ...(goal ? { currentGoal: { title: goal.title, motivation: goal.motivation, progress: goal.progress } } : {}),
+      }, ...(goal ? { currentGoalId: goal.id } : {}) };
       return { context, memory: undefined };
     }
 

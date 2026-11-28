@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AgentSettings } from "../contracts/agent-settings.js";
 import type { ConversationContentDraft, ConversationProgress, ConversationSource, UserConversationTurn } from "../contracts/conversation.js";
+import { goalProgressProposalLimit } from "../contracts/learning-goal.js";
 import { reviewOutcome, reviewProposal, type ReviewOutcome, type ReviewProposal } from "../review/proposal.js";
 import type { ObserveRun, VerificationFailure } from "./diagnostics.js";
 import { runMaterialModel } from "./material-model.js";
@@ -13,6 +14,8 @@ export interface MaterialExplanation {
   review?: ReviewProposal;
   // Set only when the turn answered a review question.
   reviewOutcome?: ReviewOutcome;
+  // New progress for the conversation's goal, kept only when the answer was recalled.
+  goalProgress?: string;
 }
 
 export interface MaterialPublication {
@@ -21,6 +24,8 @@ export interface MaterialPublication {
   supplements: ConversationSource[];
   readings?: { text: string; sourceIds: string[] }[];
 }
+
+const goalProgressSchema = z.string().trim().min(1).max(goalProgressProposalLimit).refine(text => !/[\u0000\uD800-\uDFFF]/u.test(text));
 
 const otherTopicSchema = z.strictObject({
   otherTopic: z.string().trim().min(1).max(4000).refine(text => !/[\u0000\uD800-\uDFFF]/u.test(text)),
@@ -47,10 +52,13 @@ function interpret(text: string, prompt: MaterialPrompt, sources: ConversationSo
   const outcome = answered ? reviewOutcome(parsed.data.reviewOutcome) : undefined;
   const mayOffer = prompt.offerReview && (!prompt.review || answered);
   const review = mayOffer ? reviewProposal(parsed.data.review, sources) : undefined;
+  // Only an answer recalled in full is evidence enough to suggest new progress; anything malformed is left out.
+  const progress = prompt.currentGoal && outcome?.result === "recalled" ? goalProgressSchema.safeParse(parsed.data.goalProgress) : undefined;
   return { kind: "explained", explanation: {
     ...explanation,
     ...(review && review.question !== prompt.review?.question ? { review } : {}),
     ...(outcome ? { reviewOutcome: outcome } : {}),
+    ...(progress?.success ? { goalProgress: progress.data } : {}),
   } };
 }
 

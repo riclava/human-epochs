@@ -25,6 +25,7 @@ export const explanationSchema = z.strictObject({
   review: z.unknown().optional(),
   reviewAnswered: z.unknown().optional(),
   reviewOutcome: z.unknown().optional(),
+  goalProgress: z.unknown().optional(),
 });
 type ReplyBlock = z.infer<typeof explanationSchema>["blocks"][number];
 type StructuredDraft = Extract<ReplyBlock, { kind: "event_log" | "diagram" }>;

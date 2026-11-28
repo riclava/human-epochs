@@ -12,7 +12,7 @@ import { conversationPrompt, memoryDataNote } from "./prompts.js";
 
 export type TurnContext =
   | { kind: "conversation"; history: ConversationMessage[]; memory?: string; knownGoals?: string[]; currentGoalId?: string }
-  | { kind: "material"; prompt: MaterialPrompt; publication?: MaterialPublication };
+  | { kind: "material"; prompt: MaterialPrompt; publication?: MaterialPublication; currentGoalId?: string };
 
 export interface TurnReply {
   replyBlocks: ConversationContentDraft[];
@@ -98,8 +98,11 @@ export function createTurnRunner(model: ModelClient | null, now = Date.now) {
           break;
         }
         case "material": {
-          const { replyBlocks, explanationSource, review, reviewOutcome } = await discussMaterial(context.publication, context.prompt, callModel, settings, options);
-          output = { replyBlocks, explanationSource, ...(review ? { review } : {}), ...(reviewOutcome ? { reviewOutcome } : {}) };
+          const { replyBlocks, explanationSource, review, reviewOutcome, goalProgress } = await discussMaterial(context.publication, context.prompt, callModel, settings, options);
+          // A recalled review answer may suggest new progress for the conversation's goal, shown after the feedback.
+          const progress = goalProgress && context.currentGoalId
+            ? [{ kind: "goal_progress_proposal" as const, progress: goalProgress, goalId: context.currentGoalId }] : [];
+          output = { replyBlocks: [...replyBlocks, ...progress], explanationSource, ...(review ? { review } : {}), ...(reviewOutcome ? { reviewOutcome } : {}) };
           break;
         }
       }
