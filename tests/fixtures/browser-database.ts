@@ -7,6 +7,8 @@ import { migrate } from '../../src/storage/migrate.js'
 import { seed } from '../../src/storage/seed.js'
 import { testModelBaseUrl } from './conversation-stream.js'
 import { testMailUrl } from './mail.js'
+import { generateVapidKeys } from '../../src/app/web-push.js'
+import { testPushOrigin } from './push.js'
 
 export default async function prepareDatabase() {
   if (!process.env.DATABASE_URL) process.loadEnvFile('.env')
@@ -35,10 +37,14 @@ export default async function prepareDatabase() {
     await seed(pool)
     process.env.DATABASE_URL = url.toString()
     // Keep the API lifetime inside that of its database, including setup failures and test interruptions.
+    const keys = generateVapidKeys()
+    const vapid = { VAPID_PUBLIC_KEY: keys.publicKey, VAPID_PRIVATE_KEY: keys.privateKey }
     server = spawn(process.execPath, ['--import', 'tsx', 'src/app/server.ts'], {
       env: { ...process.env, PORT: '3307', HOST: '127.0.0.1', MODEL_API_KEY: '', AGENT_SETTINGS_ADMIN_EMAILS: 'alice@example.test',
         REGISTRATION_ENABLED: 'true',
         // Mail goes to a fake provider that recovery tests run on this port.
+        // Review reminders go to a fake push service that the reminder test runs on this origin.
+        ...vapid, VAPID_SUBJECT: 'mailto:test@example.test', PUSH_ALLOWED_ORIGINS: testPushOrigin,
         MAIL_PROVIDER: 'resend', MAIL_API_URL: testMailUrl, MAIL_API_KEY: 'fixture-key', MAIL_FROM: 'test@example.test', PUBLIC_BASE_URL: 'http://127.0.0.1:5317',
         MODEL_ALLOWED_PRIVATE_BASE_URLS: testModelBaseUrl,
         MODEL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 2).toString('base64') },

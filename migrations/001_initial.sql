@@ -162,6 +162,8 @@ CREATE TABLE review_invitations (
   proposal jsonb NOT NULL,
   question_request_id uuid,
   cancelled boolean NOT NULL DEFAULT false,
+  -- When a push reminder was sent for it, so each review is announced once.
+  notified_at timestamptz,
   PRIMARY KEY (user_id, id),
   FOREIGN KEY (user_id, id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE,
   FOREIGN KEY (user_id, origin_request_id) REFERENCES conversation_turns(user_id, request_id) ON DELETE CASCADE
@@ -341,3 +343,19 @@ CREATE TABLE email_tokens (
 );
 
 CREATE INDEX email_tokens_by_user ON email_tokens (user_id, purpose);
+
+-- A browser on one device that asked to be told when a review is due. It belongs to the session that subscribed, so
+-- signing out, a password reset or deleting the account removes it.
+CREATE TABLE push_subscriptions (
+  endpoint text PRIMARY KEY CHECK (length(endpoint) <= 1000),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  session_token_hash text NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
+  p256dh text NOT NULL CHECK (length(p256dh) BETWEEN 80 AND 100),
+  auth text NOT NULL CHECK (length(auth) BETWEEN 16 AND 32),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE INDEX push_subscriptions_by_user ON push_subscriptions (user_id);
+
+CREATE INDEX review_invitations_to_announce ON review_invitations (due_at)
+  WHERE notified_at IS NULL AND question_request_id IS NULL AND NOT cancelled;

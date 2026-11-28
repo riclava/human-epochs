@@ -64,6 +64,7 @@ echo '<至少 10 位的密码>' | docker compose -f compose.production.yaml exec
 - **限流。** 同一账号 15 分钟内输错 10 次密码、同一地址输错 30 次，会暂停登录 15 分钟；同一地址每小时最多注册 5 次。计数保存在进程内，运行多个实例时需要改为共享存储。
 - **日志。** 生产环境向标准输出写 JSON 日志，包含请求方法、路径、状态和耗时，不记录请求体和 Cookie。
 - **邮件。** 确认邮箱和找回密码需要发信：设置 `MAIL_PROVIDER=resend`、`MAIL_API_KEY`、`MAIL_FROM` 和 `PUBLIC_BASE_URL`（用户打开网站的地址）。不设置时这两项功能关闭；本地开发默认把邮件写到服务端日志里，可以从日志复制链接。
+- **复习提醒。** 用 `npm run push:keys` 生成一对 VAPID 密钥，把输出的三行写进 `.env.production`（`VAPID_SUBJECT` 改成你的联系邮箱）。推送只能在 HTTPS 下使用；iPhone 和 iPad 需要先把网站添加到主屏幕，再从主屏幕打开后开启。不设置时这项功能关闭。
 - **备份。** 数据都在 PostgreSQL 中，可用 `docker compose -f compose.production.yaml exec db pg_dump -U human_epochs human_epochs > backup.sql` 备份。
 
 ## 当前交付

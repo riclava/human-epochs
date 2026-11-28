@@ -5,6 +5,7 @@ import { ConversationListPanel } from './ConversationListPanel'
 import { useConversationList } from './useConversationList'
 import { hasTodayContent, type TodayView } from '../../../src/contracts/today'
 import { request } from './api'
+import { useReminderRenewal } from './ReviewReminders'
 import { conversationHref, useWorkspacePages } from './workspace-pages'
 
 export function ConversationWorkspace({ user, onUnauthorized, onAccountChanged, onAccountDeleted, onSignOut, brand }: {
@@ -18,6 +19,7 @@ export function ConversationWorkspace({ user, onUnauthorized, onAccountChanged, 
   const [navigationOpen, setNavigationOpen] = useState(false)
   const { current, available, home, conversationId } = useWorkspacePages(user)
   const conversations = useConversationList(user.id, onUnauthorized)
+  useReminderRenewal(user.id)
   const { href, title, paneClassName, View } = current
   const heading = { id: 'workspace-heading', text: title }
   const location = conversationId ?? href

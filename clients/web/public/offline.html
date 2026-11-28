@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#eef3f8" />
+    <title>需要联网 · Human Epochs</title>
+    <style>
+      :root { color-scheme: light dark; --canvas: #eef3f8; --panel: #ffffff; --ink: #172033; --muted: #4b5870; --accent: #244fc2; }
+      @media (prefers-color-scheme: dark) { :root { --canvas: #111827; --panel: #1b2433; --ink: #e8edf5; --muted: #a9b4c6; --accent: #8fb0ff; } }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--canvas); color: var(--ink);
+        font: 16px/1.7 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+      main { width: min(28rem, calc(100% - 32px)); padding: 24px; border-radius: 12px; background: var(--panel); }
+      h1 { margin: 0 0 8px; font-size: 1.4rem; }
+      p { margin: 0 0 16px; color: var(--muted); }
+      a { display: inline-block; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: var(--panel); text-decoration: none; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>需要联网</h1>
+      <p>Human Epochs 的对话、复习和目标都保存在服务端，联网后才能打开。你输入但还没发出的内容会留在原来的页面里。</p>
+      <a href="/">重新连接</a>
+    </main>
+  </body>
+</html>

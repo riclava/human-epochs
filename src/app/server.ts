@@ -26,6 +26,7 @@ const app = createApp(pool, null, config.AGENT_SETTINGS_ADMIN_EMAILS, { provider
   registration: { open: config.REGISTRATION_ENABLED },
   trustProxy: config.TRUST_PROXY,
   mail: sendMail && { send: sendMail, baseUrl: config.publicBaseUrl },
+  push: config.vapid && { vapid: config.vapid, allowedOrigins: config.PUSH_ALLOWED_ORIGINS.split(",").map(origin => origin.trim()).filter(Boolean) },
   production,
 });
 app.addHook("onClose", async () => { await pool.end(); });

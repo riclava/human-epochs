@@ -14,6 +14,7 @@
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "account:create": "tsx --env-file-if-exists=.env scripts/create-account.ts",
+    "push:keys": "tsx scripts/push-keys.ts",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build && npm run build:server",
     "build:server": "rm -rf dist/server && tsc -p tsconfig.server.json",

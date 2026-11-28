@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { MailConfig } from "./mail.js";
+import type { VapidKeys } from "./web-push.js";
 
 const flag = z.enum(["true", "false"]).default("false").transform(value => value === "true");
 
@@ -20,12 +21,18 @@ const schema = z.object({
   MAIL_API_URL: z.url().default("https://api.resend.com/emails"),
   // The address people open the site at, used to build links in mail.
   PUBLIC_BASE_URL: z.url().optional(),
+  // Web Push for review reminders. Generate a key pair with `npm run push:keys`; leave all three empty to turn it off.
+  VAPID_PUBLIC_KEY: z.string().regex(/^[A-Za-z0-9_-]{87}$/u, "应为 65 字节公钥的 base64url").optional(),
+  VAPID_PRIVATE_KEY: z.string().regex(/^[A-Za-z0-9_-]{43}$/u, "应为 32 字节私钥的 base64url").optional(),
+  VAPID_SUBJECT: z.string().regex(/^(mailto:|https:\/\/)/u, "应以 mailto: 或 https:// 开头").optional(),
+  // Extra push service origins to accept, comma separated, for self-hosted services and tests.
+  PUSH_ALLOWED_ORIGINS: z.string().default(""),
   // How many proxies in front of the server to trust for the client address: "false", "true" or a hop count.
   TRUST_PROXY: z.union([z.enum(["true", "false"]).transform(value => value === "true"), z.coerce.number().int().min(1).max(10)])
     .default(false),
 });
 
-export type ServerConfig = z.infer<typeof schema> & { mail: MailConfig; publicBaseUrl: string };
+export type ServerConfig = z.infer<typeof schema> & { mail: MailConfig; publicBaseUrl: string; vapid: VapidKeys | null };
 
 // Reads the environment once at start. In production the server refuses settings that would expose demo accounts
 // or leave saved model keys unencrypted, and lists every problem at once.
@@ -37,10 +44,13 @@ export function readServerConfig(env: NodeJS.ProcessEnv): ServerConfig {
   const mail: MailConfig = provider === "resend"
     ? { provider, apiKey: parsed.data.MAIL_API_KEY ?? "", from: parsed.data.MAIL_FROM ?? "", apiUrl: parsed.data.MAIL_API_URL }
     : { provider };
-  const config = { ...parsed.data, mail, publicBaseUrl: (parsed.data.PUBLIC_BASE_URL ?? "http://127.0.0.1:5173").replace(/\/+$/u, "") };
+  const { VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: privateKey, VAPID_SUBJECT: subject } = parsed.data;
+  const vapid = publicKey && privateKey && subject ? { publicKey, privateKey, subject } : null;
+  const config = { ...parsed.data, mail, vapid, publicBaseUrl: (parsed.data.PUBLIC_BASE_URL ?? "http://127.0.0.1:5173").replace(/\/+$/u, "") };
   const mailProblems = [
     provider === "resend" && !parsed.data.MAIL_API_KEY && "MAIL_PROVIDER=resend 需要 MAIL_API_KEY。",
     provider === "resend" && !parsed.data.MAIL_FROM && "MAIL_PROVIDER=resend 需要 MAIL_FROM，例如 Human Epochs <noreply@example.com>。",
+    !vapid && (publicKey || privateKey || subject) && "复习提醒需要同时设置 VAPID_PUBLIC_KEY、VAPID_PRIVATE_KEY 和 VAPID_SUBJECT。",
   ].filter(Boolean);
   if (!production) {
     if (mailProblems.length) throw new Error("服务端配置有误：\n" + mailProblems.map(problem => "- " + problem).join("\n"));
