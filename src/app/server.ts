@@ -4,6 +4,7 @@ import { migrate, verifyDatabaseSchema } from "../storage/migrate.js";
 import { createModelCredentialCipher } from "../storage/model-credential.js";
 import { readServerConfig } from "./config.js";
 import { createApp } from "./create-app.js";
+import { createMailSender } from "./mail.js";
 
 let config;
 try {
@@ -16,6 +17,7 @@ const production = config.NODE_ENV === "production";
 const provider = createModelProvider(process.env);
 const cipher = createModelCredentialCipher(config.MODEL_CREDENTIAL_ENCRYPTION_KEY);
 const pool = createPool();
+const sendMail = createMailSender(config.mail);
 const app = createApp(pool, null, config.AGENT_SETTINGS_ADMIN_EMAILS, { provider, cipher }, {
   backgroundJobs: true,
   // Production logs are JSON lines on stdout for the platform to collect; request lines carry method, path and
@@ -23,6 +25,7 @@ const app = createApp(pool, null, config.AGENT_SETTINGS_ADMIN_EMAILS, { provider
   logger: production ? { level: "info", redact: ["req.headers.cookie", "req.headers.authorization"] } : { stream: process.stderr },
   registration: { open: config.REGISTRATION_ENABLED },
   trustProxy: config.TRUST_PROXY,
+  mail: sendMail && { send: sendMail, baseUrl: config.publicBaseUrl },
   production,
 });
 app.addHook("onClose", async () => { await pool.end(); });

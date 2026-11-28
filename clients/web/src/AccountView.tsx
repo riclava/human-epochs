@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { passwordMinLength, type AccountCommand } from '../../../src/contracts/session'
 import { HttpError, request } from './api'
 import type { WorkspacePageProps } from './workspace-pages'
+import { EmailVerification } from './EmailVerification'
 
 type Section = 'name' | 'password' | 'delete'
 type Outcome = { section: Section; kind: 'error' | 'done'; text: string }
@@ -54,6 +55,7 @@ export function AccountView({ user, heading, onUnauthorized, onAccountChanged, o
     <header className="settings-heading">
       <h1 id={heading.id} tabIndex={-1}>{heading.text}</h1>
       <p>登录邮箱：{user.email}</p>
+      <EmailVerification user={user} onUnauthorized={onUnauthorized} onVerified={onAccountChanged} />
     </header>
     <div className="settings-form">
       <section className="settings-section" aria-labelledby="account-name-title">
@@ -86,6 +88,11 @@ export function AccountView({ user, heading, onUnauthorized, onAccountChanged, o
           {message('password')}
           <button type="submit" disabled={!!pending}>{pending === 'password' ? '正在保存…' : '修改密码'}</button>
         </form>
+      </section>
+      <section className="settings-section" aria-labelledby="account-export-title">
+        <div className="settings-section-heading"><h2 id="account-export-title">导出数据</h2>
+          <p>下载一份 JSON 文件，包含你的对话、材料全文、记忆、学习目标和复习记录。</p></div>
+        <div><a className="button-link" href="/api/account/export" download>下载我的数据</a></div>
       </section>
       <section className="settings-section" aria-labelledby="account-delete-title">
         <div className="settings-section-heading"><h2 id="account-delete-title">删除账号</h2>

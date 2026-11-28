@@ -11,7 +11,9 @@ CREATE TABLE users (
   password_hash text NOT NULL,
   memory_revision integer NOT NULL DEFAULT 0,
   review_reminders_enabled boolean NOT NULL DEFAULT true,
-  memory_suggestions_enabled boolean NOT NULL DEFAULT false
+  memory_suggestions_enabled boolean NOT NULL DEFAULT false,
+  -- Set once the user opened a link sent to this address.
+  email_verified_at timestamptz
 );
 
 CREATE TABLE sessions (
@@ -320,3 +322,16 @@ CREATE TABLE learning_goal_command_receipts (
   command_fingerprint text NOT NULL CHECK (length(command_fingerprint) = 64),
   PRIMARY KEY (user_id, command_id)
 );
+
+-- Single-use links sent by email. Only a digest of the token is stored. A verification link names the address it
+-- verifies, so it stops working if the address changes.
+CREATE TABLE email_tokens (
+  token_hash text PRIMARY KEY CHECK (length(token_hash) = 64),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose text NOT NULL CHECK (purpose IN ('verify_email', 'reset_password')),
+  email text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz
+);
+
+CREATE INDEX email_tokens_by_user ON email_tokens (user_id, purpose);

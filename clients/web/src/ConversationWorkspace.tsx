@@ -72,6 +72,7 @@ export function ConversationWorkspace({ user, onUnauthorized, onAccountChanged, 
           <ConversationListPanel userId={user.id} items={conversations.items} loaded={conversations.loaded} error={conversations.error}
             currentId={conversationId} onReplace={conversations.replace} onRefresh={conversations.refresh}
             onNavigate={onNavigationClick} onStart={startConversation} onUnauthorized={onUnauthorized} />
+          {user.emailVerified === false && <a className="sidebar-notice" href="#/account" onClick={onNavigationClick}>邮箱还没有确认</a>}
           <div className="sidebar-account"><span className="avatar" aria-hidden="true">{Array.from(user.displayName)[0]}</span><a href="#/account" className="account-link" onClick={onNavigationClick}
             aria-current={href === '#/account' ? 'page' : undefined} aria-label={`账号设置：${user.displayName}`}>{user.displayName}</a>
             <button onClick={onSignOut}>退出</button></div>

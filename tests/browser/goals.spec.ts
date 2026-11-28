@@ -100,6 +100,8 @@ test('Agent 提议的学习目标可以一键设为目标，并在学习目标�
     provider.close()
     provider.closeAllConnections()
     await admin.dispose()
+    // Put the runtime settings back as they were, removing them when this test created them, so later tests run offline.
     if (previous) await user.pool.query('UPDATE agent_settings SET revision = $1, settings = $2, connection = $3', [previous.revision, previous.settings, previous.connection])
+    else await user.pool.query('DELETE FROM agent_settings')
   }
 })

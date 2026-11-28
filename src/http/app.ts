@@ -15,6 +15,9 @@ import type { createLearningService } from "../app/learning-record.js";
 import type { createMaterialLibrary } from "../app/material-library.js";
 import type { createLearningGoalService } from "../app/learning-goals.js";
 import { registerLearningGoals } from "./learning-goals.js";
+import { registerConversationSearch } from "./conversation-search.js";
+import { registerAccountRecovery, registerVerificationResend } from "./account-recovery.js";
+import type { createAccountRecovery } from "../app/account-recovery.js";
 import { registerActivities } from "./activities.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { registerConversation } from "./conversation.js";
@@ -45,7 +48,10 @@ interface HttpServices {
   learning: ReturnType<typeof createLearningService>;
   materials: ReturnType<typeof createMaterialLibrary>;
   goals: ReturnType<typeof createLearningGoalService>;
-  accounts: { pool: Pool; registration: RegistrationPolicy };
+  // The database, for routes that read it directly: health, accounts, export and search.
+  pool: Pool;
+  registration: RegistrationPolicy;
+  recovery: ReturnType<typeof createAccountRecovery>;
 }
 
 export interface HttpOptions {
@@ -63,7 +69,7 @@ const signInFailures = () => ({
 });
 
 export function createHttpApp(
-  { auth, conversation, activities, settings, personalMemories, learning, materials, goals, accounts }: HttpServices,
+  { auth, conversation, activities, settings, personalMemories, learning, materials, goals, pool, registration, recovery }: HttpServices,
   { logger = false, trustProxy = false, production = false }: HttpOptions = {},
 ) {
   // A hop count trusts that many proxies nearest the server.
@@ -94,13 +100,14 @@ export function createHttpApp(
       return { user: session.user };
     });
 
-    registerSignUp(api, accounts.pool, accounts.registration);
+    registerSignUp(api, pool, registration, recovery);
+    registerAccountRecovery(api, recovery);
 
     // Liveness says the process answers; readiness also needs the database.
     api.get("/healthz", async () => ({ status: "ok" }));
     api.get("/readyz", async (_request, reply) => {
       try {
-        await accounts.pool.query("SELECT 1");
+        await pool.query("SELECT 1");
         return { status: "ok" };
       } catch {
         return reply.code(503).send({ status: "unavailable" });
@@ -130,7 +137,9 @@ export function createHttpApp(
       registerLearningRecord(authenticated, learning);
       registerMaterialLibrary(authenticated, materials);
       registerLearningGoals(authenticated, goals);
-      registerAccountCommands(authenticated, accounts.pool);
+      registerConversationSearch(authenticated, pool);
+      registerVerificationResend(authenticated, recovery);
+      registerAccountCommands(authenticated, pool);
     });
   }, { prefix: "/api" });
 

@@ -6,6 +6,7 @@ import { Pool } from 'pg'
 import { migrate } from '../../src/storage/migrate.js'
 import { seed } from '../../src/storage/seed.js'
 import { testModelBaseUrl } from './conversation-stream.js'
+import { testMailUrl } from './mail.js'
 
 export default async function prepareDatabase() {
   if (!process.env.DATABASE_URL) process.loadEnvFile('.env')
@@ -37,6 +38,8 @@ export default async function prepareDatabase() {
     server = spawn(process.execPath, ['--import', 'tsx', 'src/app/server.ts'], {
       env: { ...process.env, PORT: '3307', HOST: '127.0.0.1', MODEL_API_KEY: '', AGENT_SETTINGS_ADMIN_EMAILS: 'alice@example.test',
         REGISTRATION_ENABLED: 'true',
+        // Mail goes to a fake provider that recovery tests run on this port.
+        MAIL_PROVIDER: 'resend', MAIL_API_URL: testMailUrl, MAIL_API_KEY: 'fixture-key', MAIL_FROM: 'test@example.test', PUBLIC_BASE_URL: 'http://127.0.0.1:5317',
         MODEL_ALLOWED_PRIVATE_BASE_URLS: testModelBaseUrl,
         MODEL_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 2).toString('base64') },
       stdio: ['ignore', 'pipe', 'inherit'],

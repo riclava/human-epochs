@@ -30,7 +30,7 @@ const citingModel = async ({ messages }: { messages: { content?: string | null }
 test('registration follows the policy, signs the new account in, and refuses taken emails and floods', async t => {
   const closed = createApp(pool, null, undefined, undefined, { registration: { open: false } })
   t.after(() => closed.close())
-  assert.deepEqual((await closed.inject({ url: '/api/registration' })).json(), { open: false })
+  assert.deepEqual((await closed.inject({ url: '/api/registration' })).json(), { open: false, passwordReset: false })
   const email = `new-${randomUUID()}@Example.test`
   const body = { email, displayName: '  小林 ', password }
   assert.equal((await closed.inject({ method: 'POST', url: '/api/register', payload: body })).statusCode, 403)

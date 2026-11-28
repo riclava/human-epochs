@@ -7,7 +7,7 @@ const deriveKey = promisify(scrypt);
 const hashLength = 64;
 export const sessionLifetimeSeconds = 7 * 24 * 60 * 60;
 
-type Account = Omit<User, "canManageAgentSettings">;
+type Account = Omit<User, "canManageAgentSettings" | "emailVerified"> & { emailVerified: boolean };
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString("hex");
@@ -31,7 +31,7 @@ export function tokenDigest(token: string): string {
 async function sessionUser(pool: Pool, token: string | undefined): Promise<Account | null> {
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   const result = await pool.query<Account>(`
-    SELECT u.id, u.display_name AS "displayName", u.email
+    SELECT u.id, u.display_name AS "displayName", u.email, u.email_verified_at IS NOT NULL AS "emailVerified"
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = $1 AND s.expires_at > now()
   `, [tokenDigest(token)]);
@@ -47,20 +47,22 @@ export async function createSession(pool: Pool | PoolClient, userId: string): Pr
   return token;
 }
 
-export function createAuthService(pool: Pool, settingsAdminEmails = process.env.AGENT_SETTINGS_ADMIN_EMAILS ?? "") {
+export function createAuthService(pool: Pool, settingsAdminEmails = process.env.AGENT_SETTINGS_ADMIN_EMAILS ?? "", verification = false) {
   const admins = new Set(settingsAdminEmails.toLowerCase().split(",").map(email => email.trim()).filter(Boolean));
-  const withPermissions = (account: Account): User => ({ ...account, canManageAgentSettings: admins.has(account.email) });
+  const withPermissions = (account: Account): User => ({
+    ...account, emailVerified: verification ? account.emailVerified : null, canManageAgentSettings: admins.has(account.email),
+  });
 
   async function signIn(email: string, password: string) {
     const result = await pool.query<Account & { passwordHash: string }>(`
-      SELECT id, email, display_name AS "displayName", password_hash AS "passwordHash"
+      SELECT id, email, display_name AS "displayName", email_verified_at IS NOT NULL AS "emailVerified", password_hash AS "passwordHash"
       FROM users WHERE email = $1
     `, [email]);
     const account = result.rows[0];
     const verified = await verifyPassword(password, account?.passwordHash);
     if (!verified || !account) return null;
-    const { id, displayName, email: accountEmail } = account;
-    return { user: withPermissions({ id, displayName, email: accountEmail }), token: await createSession(pool, id) };
+    const { id, displayName, email: accountEmail, emailVerified } = account;
+    return { user: withPermissions({ id, displayName, email: accountEmail, emailVerified }), token: await createSession(pool, id) };
   }
 
   async function signOut(token: string | undefined) {

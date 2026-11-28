@@ -11,6 +11,7 @@ import { AttachMaterialDialog } from './AttachMaterialDialog'
 import { MaterialStatus } from './MaterialComposer'
 import { GoalProposalsContext } from './GoalProposalCard'
 import { useLearningGoals } from './learning-goals-client'
+import { useTurnTarget } from './useTurnTarget'
 import type { WorkspacePageProps } from './workspace-pages'
 
 function groupBySource<T extends { sourceRequestId: string | null }>(records: readonly T[]) {
@@ -81,6 +82,8 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
     const pane = scrollPane.current
     if (pane && followLatest.current) pane.scrollTop = pane.scrollHeight
   }, [latest?.requestId, latest?.status, activeId, conversation.scrollPreview, reviewInvitation?.reviewInvitationId])
+
+  const targetTurn = useTurnTarget(!!snapshot, followLatest)
 
   function send(message: UnsentMessage) {
     if (!canSend) return
@@ -155,7 +158,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
             {snapshot && <PersonalMemorySection {...memoryActions} memories={memoriesBySource.get(null) ?? []}
               suggestionsEnabled={snapshot.suggestionsEnabled} />}
             <div className="conversation-log" role="log" aria-label="对话记录" aria-relevant="additions text">
-              {items.map(({ turn, status, preview, progress }) => <ConversationTurnMessage key={turn.requestId} turn={turn}
+              {items.map(({ turn, status, preview, progress }) => <ConversationTurnMessage key={turn.requestId} turn={turn} targeted={turn.requestId === targetTurn}
                 usedMemories={turn.kind === 'user' ? (turn.memoryIds ?? []).flatMap(id => memoriesById.get(id) ?? []) : []}
                 memory={turn.status === 'complete' && turn.kind === 'user' && <PersonalMemorySection {...memoryActions}
                   source={turn} memories={memoriesBySource.get(turn.requestId) ?? []}

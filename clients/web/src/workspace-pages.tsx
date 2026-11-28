@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useHash } from './use-hash'
 import type { ComponentType, ReactNode } from 'react'
 import type { User } from '../../../src/contracts/session'
 import { AccountView } from './AccountView'
@@ -7,9 +7,11 @@ import { ConversationView } from './ConversationView'
 import { LearningGoalsView } from './LearningGoalsView'
 import { LearningRecordView } from './LearningRecordView'
 import { MaterialLibraryView } from './MaterialLibraryView'
-import { conversationRoute } from './routes'
+import { ConversationSearchView } from './ConversationSearchView'
+import { conversationRoute, searchRoute } from './routes'
 
 export { conversationHref, conversationRoute } from './routes'
+export { useHash } from './use-hash'
 
 export interface WorkspacePageProps {
   userId: string
@@ -80,7 +82,18 @@ const goals: WorkspacePage = {
   View: LearningGoalsView,
 }
 
-const pages: readonly WorkspacePage[] = [conversation, goals, learning, materials, {
+const search: WorkspacePage = {
+  href: '#/search',
+  title: '搜索对话',
+  paneClassName: 'settings-pane',
+  icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" />
+  </svg>,
+  View: ConversationSearchView,
+  matches: hash => searchRoute(hash) !== null,
+}
+
+const pages: readonly WorkspacePage[] = [conversation, search, goals, learning, materials, {
   href: '#/settings',
   title: '运行设置',
   paneClassName: 'settings-pane',
@@ -96,17 +109,8 @@ const pages: readonly WorkspacePage[] = [conversation, goals, learning, material
   inNavigation: false,
 }]
 
-function subscribeToHash(notify: () => void) {
-  window.addEventListener('hashchange', notify)
-  return () => window.removeEventListener('hashchange', notify)
-}
-
-function readHash() {
-  return window.location.hash
-}
-
 export function useWorkspacePages(user: User) {
-  const hash = useSyncExternalStore(subscribeToHash, readHash)
+  const hash = useHash()
   const available = pages.filter(page => page.canOpen?.(user) ?? true)
   const current = available.find(page => page.matches ? page.matches(hash) : page.href === hash) ?? conversation
   return { current, available, home: conversation, conversationId: current === conversation ? conversationRoute(hash) : null }

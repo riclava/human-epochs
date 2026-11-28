@@ -23,8 +23,8 @@ export async function createTestUser(pool: Pool) {
   const id = randomUUID()
   const email = 'material-' + id + '@example.test'
   const inserted = await pool.query(`
-    INSERT INTO users (id, email, display_name, password_hash)
-    SELECT $1, $2, 'User', password_hash FROM users WHERE email = 'alice@example.test'
+    INSERT INTO users (id, email, display_name, password_hash, email_verified_at)
+    SELECT $1, $2, 'User', password_hash, now() FROM users WHERE email = 'alice@example.test'
   `, [id, email])
   if (!inserted.rowCount) throw new Error('Seed the demo accounts before running user tests')
   return { id, email }

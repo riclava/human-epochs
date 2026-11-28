@@ -27,8 +27,8 @@ export async function seed(pool: Pool): Promise<void> {
 
     for (const { displayName, email, passwordHash } of accounts) {
       await client.query(`
-        INSERT INTO users (id, email, display_name, password_hash)
-        VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING
+        INSERT INTO users (id, email, display_name, password_hash, email_verified_at)
+        VALUES ($1, $2, $3, $4, now()) ON CONFLICT (email) DO NOTHING
       `, [randomUUID(), email, displayName, passwordHash]);
       const user = await client.query<{ id: string }>("SELECT id FROM users WHERE email = $1", [email]);
       await createActivity(client, user.rows[0]!.id, memoirCourse.version, "intro-memoir");

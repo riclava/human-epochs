@@ -40,8 +40,10 @@ function SourceQuotes({ sources }: { sources: MaterialSourceView[] }) {
   </figure>)}</>
 }
 
-export function ConversationTurnMessage({ turn, status, preview, memory, usedMemories = [] }: {
+export function ConversationTurnMessage({ turn, status, preview, memory, usedMemories = [], targeted = false }: {
   turn: ConversationTurn; status?: ReactNode; preview?: string; memory?: ReactNode
+  // The turn the address names, such as a search result; it is marked and can take focus.
+  targeted?: boolean
   // Memories this reply was given that the user can still see. Forgotten ones are gone from the snapshot.
   usedMemories?: PersonalMemory[]
 }) {
@@ -49,7 +51,8 @@ export function ConversationTurnMessage({ turn, status, preview, memory, usedMem
   const source = explanationSource && { model: '在线解释', course: '课程导读', excerpt: '原文摘录' }[explanationSource]
   const blocks = turn.kind === 'user' ? turn.replyBlocks : turn.questionBlocks
   const unavailableMessage = turn.kind === 'review_question' ? '这道复习题已不可用。' : '这部分回复已失效。'
-  return <div className="conversation-turn">
+  return <div className={targeted ? 'conversation-turn is-target' : 'conversation-turn'} id={'turn-' + turn.requestId}
+    tabIndex={targeted ? -1 : undefined} aria-current={targeted ? 'location' : undefined}>
     {turn.kind === 'user' && <div className="user-message"><strong className="sr-only">你</strong><p>{turn.messageText}</p>
       {turn.materialContext && <details className="turn-sources"><summary>查看当轮材料</summary>
         <SourceQuotes sources={turn.materialContext.sources} /></details>}

@@ -14,16 +14,20 @@ import { createPersonalMemoryService } from "./personal-memories.js";
 import { createLearningService } from "./learning-record.js";
 import { createMaterialLibrary } from "./material-library.js";
 import { createLearningGoalService } from "./learning-goals.js";
+import { createAccountRecovery } from "./account-recovery.js";
+import type { MailSettings } from "./mail.js";
 
 export function createApp(
   pool: Pool, model: ModelClient | null, settingsAdminEmails?: string, modelOptions?: ModelOptions,
-  { backgroundJobs = false, logger, reviewNow, registration = { open: process.env.REGISTRATION_ENABLED === "true" }, trustProxy, production }: {
+  { backgroundJobs = false, logger, reviewNow, registration = { open: process.env.REGISTRATION_ENABLED === "true" }, trustProxy, production, mail = null }: {
     backgroundJobs?: boolean; logger?: FastifyServerOptions["logger"]; reviewNow?: () => Date; registration?: RegistrationPolicy;
+    // How verification and password reset mail is sent; without it those features are off.
+    mail?: MailSettings | null;
   } & Pick<HttpOptions, "trustProxy" | "production"> = {},
 ) {
   const settings = createAgentSettingsService(pool, model, modelOptions);
   const app = createHttpApp({
-    auth: createAuthService(pool, settingsAdminEmails),
+    auth: createAuthService(pool, settingsAdminEmails, mail !== null),
     conversation: createConversationService(pool, settings, reviewNow),
     activities: createActivityService(pool),
     personalMemories: createPersonalMemoryService(pool),
@@ -31,7 +35,9 @@ export function createApp(
     materials: createMaterialLibrary(pool),
     goals: createLearningGoalService(pool),
     settings,
-    accounts: { pool, registration },
+    pool,
+    registration,
+    recovery: createAccountRecovery(pool, mail, error => app.log.error({ err: error }, "mail failed")),
   }, { logger, trustProxy, production });
   if (backgroundJobs) attachBackgroundWorker(app, [
     { name: "conversation summary", run: signal => processNextSummary(pool, settings.execution, signal) },

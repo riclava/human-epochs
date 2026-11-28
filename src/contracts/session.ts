@@ -4,6 +4,8 @@ export interface User {
   id: string;
   displayName: string;
   email: string;
+  // Whether the user opened a link sent to this address, or null when the server sends no mail to verify with.
+  emailVerified: boolean | null;
   canManageAgentSettings: boolean;
 }
 
