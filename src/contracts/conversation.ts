@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { goalNoteLimit, goalTitleLimit } from './learning-goal.js'
 import type { PersonalMemorySnapshot } from './personal-memory.js'
 
 export const conversationTextLimit = 4000
@@ -119,12 +120,21 @@ export function diagramProblem({ nodes, edges }: DiagramShape): string | null {
 }
 const diagramBlock = z.strictObject(diagramFields).refine(block => !diagramProblem(block), { message: 'Invalid diagram edges' })
 
-export const conversationContentDraftSchema = z.discriminatedUnion('kind', [textBlock, excerptBlock, eventLogBlock, diagramBlock])
+// A learning goal the Agent suggests in ordinary conversation. It becomes a goal only when the user accepts it.
+const goalProposalFields = {
+  kind: z.literal('goal_proposal'),
+  title: z.string().trim().min(1).max(goalTitleLimit),
+  motivation: z.string().trim().max(goalNoteLimit).default(''),
+}
+const goalProposalBlock = z.strictObject(goalProposalFields)
+
+export const conversationContentDraftSchema = z.discriminatedUnion('kind', [textBlock, excerptBlock, eventLogBlock, diagramBlock, goalProposalBlock])
 export const conversationContentSchema = z.array(z.discriminatedUnion('kind', [
   textBlock.extend({ id: z.uuid() }),
   excerptBlock.extend({ id: z.uuid() }),
   z.strictObject({ ...eventLogFields, id: z.uuid() }).refine(block => !eventLogProblem(block), { message: 'Invalid event log references' }),
   z.strictObject({ ...diagramFields, id: z.uuid() }).refine(block => !diagramProblem(block), { message: 'Invalid diagram edges' }),
+  z.strictObject({ ...goalProposalFields, id: z.uuid() }),
   z.strictObject({ kind: z.literal('unavailable'), id: z.uuid() }),
 ])).min(1).refine(blocks => new Set(blocks.map(block => block.id)).size === blocks.length)
 
@@ -133,6 +143,7 @@ export type ConversationContentDraft = z.infer<typeof conversationContentDraftSc
 export type ConversationContent = z.infer<typeof conversationContentSchema>
 export type EventLogBlock = Extract<ConversationContentDraft, { kind: 'event_log' }>
 export type DiagramBlock = Extract<ConversationContentDraft, { kind: 'diagram' }>
+export type GoalProposalBlock = Extract<ConversationContentDraft, { kind: 'goal_proposal' }>
 
 // The text view keeps every relation in order and lists nodes that have no relation, so it carries the whole diagram.
 export function diagramLines(block: Pick<DiagramBlock, 'nodes' | 'edges'>) {
@@ -162,6 +173,8 @@ export function conversationContentText(content: readonly ConversationContentDra
       return [[block.title, ...lines].join('\n')]
     }
     if (block.kind === 'diagram') return [[block.title, ...diagramLines(block).map(line => '- ' + line)].join('\n')]
+    // The model sees what it proposed, so it does not propose the same goal again.
+    if (block.kind === 'goal_proposal') return [`（提议设为学习目标：${block.title}）`]
     return []
   }).join('\n\n') || null
 }

@@ -504,3 +504,12 @@ button:disabled { cursor: not-allowed; }
   color: var(--color-accent); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; }
 .link-button:hover { color: var(--color-accent-hover); background: none; }
 .field-hint { margin: var(--space-1) 0 0; color: var(--color-muted); font-size: var(--text-caption); }
+
+.goal-proposal { margin-top: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border);
+  border-inline-start: 3px solid var(--color-accent); border-radius: var(--radius-card); background: var(--color-panel); overflow-wrap: anywhere; }
+.goal-proposal-label { margin: 0; color: var(--color-muted); font-size: var(--text-caption); }
+.goal-proposal h3 { margin: var(--space-1) 0 0; font-size: var(--text-body); font-weight: 650; }
+.goal-proposal p { margin: var(--space-1) 0 0; font-size: var(--text-small); }
+.goal-proposal-actions { margin-top: var(--space-2); }
+.goal-proposal-actions button { width: auto; }
+.goal-proposal-state { color: var(--color-muted); }

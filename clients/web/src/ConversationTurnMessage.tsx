@@ -6,6 +6,7 @@ import type { ConversationCitation, ConversationTurn, MaterialSourceView } from 
 import type { PersonalMemory } from '../../../src/contracts/personal-memory'
 import { Diagram } from './Diagram'
 import { EventLog } from './EventLog'
+import { GoalProposalCard } from './GoalProposalCard'
 import { previewReplyText } from './reply-preview'
 
 const markdownComponents: Components = {
@@ -57,6 +58,7 @@ export function ConversationTurnMessage({ turn, status, preview, memory, usedMem
     <div className="agent-message"><strong>{source ?? 'Human Epochs'}</strong>
       {blocks ? blocks.map(block => {
         if (block.kind === 'unavailable') return <p key={block.id}>{unavailableMessage}</p>
+        if (block.kind === 'goal_proposal') return <GoalProposalCard key={block.id} block={block} requestId={turn.requestId} />
         return <div key={block.id}>
           {block.kind === 'text' && <ReplyMarkdown text={block.text} streaming={false} />}
           {block.kind === 'event_log' && <EventLog block={block} />}

@@ -13,6 +13,8 @@ import type { createConversationService } from "../app/conversation/service.js";
 import type { createPersonalMemoryService } from "../app/personal-memories.js";
 import type { createLearningService } from "../app/learning-record.js";
 import type { createMaterialLibrary } from "../app/material-library.js";
+import type { createLearningGoalService } from "../app/learning-goals.js";
+import { registerLearningGoals } from "./learning-goals.js";
 import { registerActivities } from "./activities.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { registerConversation } from "./conversation.js";
@@ -42,6 +44,7 @@ interface HttpServices {
   personalMemories: ReturnType<typeof createPersonalMemoryService>;
   learning: ReturnType<typeof createLearningService>;
   materials: ReturnType<typeof createMaterialLibrary>;
+  goals: ReturnType<typeof createLearningGoalService>;
   accounts: { pool: Pool; registration: RegistrationPolicy };
 }
 
@@ -60,7 +63,7 @@ const signInFailures = () => ({
 });
 
 export function createHttpApp(
-  { auth, conversation, activities, settings, personalMemories, learning, materials, accounts }: HttpServices,
+  { auth, conversation, activities, settings, personalMemories, learning, materials, goals, accounts }: HttpServices,
   { logger = false, trustProxy = false, production = false }: HttpOptions = {},
 ) {
   // A hop count trusts that many proxies nearest the server.
@@ -126,6 +129,7 @@ export function createHttpApp(
       registerPersonalMemories(authenticated, personalMemories);
       registerLearningRecord(authenticated, learning);
       registerMaterialLibrary(authenticated, materials);
+      registerLearningGoals(authenticated, goals);
       registerAccountCommands(authenticated, accounts.pool);
     });
   }, { prefix: "/api" });

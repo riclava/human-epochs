@@ -9,6 +9,8 @@ import { useConversationSession, type UnsentMessage } from './useConversationSes
 import { activeDiscussion, materialBudget, materialSelectionFor } from './material-draft'
 import { AttachMaterialDialog } from './AttachMaterialDialog'
 import { MaterialStatus } from './MaterialComposer'
+import { GoalProposalsContext } from './GoalProposalCard'
+import { useLearningGoals } from './learning-goals-client'
 import type { WorkspacePageProps } from './workspace-pages'
 
 function groupBySource<T extends { sourceRequestId: string | null }>(records: readonly T[]) {
@@ -53,6 +55,8 @@ export function ConversationView(props: WorkspacePageProps) {
 function ConversationPane({ userId, onUnauthorized, heading, conversationId, onConversationsChanged, conversationTitle }:
   WorkspacePageProps & { conversationId: string }) {
   const conversation = useConversationSession(userId, conversationId, onUnauthorized)
+  const learningGoals = useLearningGoals(userId, onUnauthorized)
+  const goalProposals = useMemo(() => ({ goals: learningGoals.goals, run: learningGoals.run }), [learningGoals.goals, learningGoals.run])
   const { snapshot, draft, latest, items, busy, canSend, activeId, controls, hasHistory, loadError, sendError, stopError } = conversation
   // The sidebar shows titles and recency, which change when this conversation gains a turn.
   const turnCount = snapshot?.turns.length ?? 0
@@ -128,7 +132,7 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
   </>
 
   return (
-    <>
+    <GoalProposalsContext.Provider value={goalProposals}>
       <header className="conversation-header">
         <h1 id={heading.id}>{snapshot ? conversationTitle ?? snapshot.title ?? '新对话' : heading.text}</h1>
         {snapshot && <span className="conversation-mode">{snapshot.mode === 'guided' ? '本地引导' : '在线模型'}</span>}
@@ -213,6 +217,6 @@ function ConversationPane({ userId, onUnauthorized, heading, conversationId, onC
           {(sendError || invalid) && <p id="conversation-send-error" role="alert" className="form-error">{invalid ? '写下一条消息再发送。' : sendError}</p>}
         </div>
       </div>
-    </>
+    </GoalProposalsContext.Provider>
   )
 }

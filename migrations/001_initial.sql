@@ -293,3 +293,30 @@ CREATE TABLE conversation_summaries (
 
 CREATE INDEX pending_conversation_summaries ON conversation_summaries (lease_until)
   WHERE status = 'pending';
+
+-- Things the user wants to learn over time. A goal created from an Agent proposal keeps the proposal's block, so one
+-- proposal makes at most one goal.
+CREATE TABLE learning_goals (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  id uuid NOT NULL,
+  revision integer NOT NULL DEFAULT 1 CHECK (revision > 0),
+  title text NOT NULL CHECK (length(title) BETWEEN 1 AND 40),
+  motivation text NOT NULL DEFAULT '' CHECK (length(motivation) <= 200),
+  progress text NOT NULL DEFAULT '' CHECK (length(progress) <= 200),
+  status text NOT NULL CHECK (status IN ('active', 'paused', 'done')),
+  proposal_request_id uuid,
+  proposal_block_id uuid,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (user_id, id),
+  CHECK ((proposal_request_id IS NULL) = (proposal_block_id IS NULL))
+);
+
+CREATE UNIQUE INDEX learning_goals_by_proposal ON learning_goals (user_id, proposal_block_id) WHERE proposal_block_id IS NOT NULL;
+
+CREATE TABLE learning_goal_command_receipts (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  command_id uuid NOT NULL,
+  command_fingerprint text NOT NULL CHECK (length(command_fingerprint) = 64),
+  PRIMARY KEY (user_id, command_id)
+);

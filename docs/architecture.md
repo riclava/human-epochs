@@ -88,6 +88,7 @@ flowchart TB
 | 核心 | 课程与材料 · `src/courses` | 提供讨论问题、导读、来源与提示。 | 课程定义与 `course_versions`。 |
 | 核心 | 活动领域 · `src/activities` | 通过 `createActivity` 和 `requestHint` 受理显式命令，`getActivity` 提供当前视图。 | `activities` 中的归属、标题、课程版本、演示去重键和修订，以及已领提示和提示收据。 |
 | 核心 | 复习领域 · `src/review` | 校验模型建议，维护邀请、到期时间和提醒偏好。 | 邀请、来源依赖、提醒偏好和操作收据。作答和反馈留在对话记录。 |
+| 应用 | 学习目标 · `src/app/learning-goals.ts`、`src/http/learning-goals.ts` | 受理目标的创建、修改和删除，核对提议来源，向在线对话提供进行中的目标。 | `learning_goals` 中的目标及来源提议，`learning_goal_command_receipts` 中的操作收据。 |
 | 核心 | 个人记忆 · `src/app/personal-memories.ts`、`src/app/memory-candidates.ts` | `remember`、`correct`、`forget` 处理显式命令，`accept_candidate`、`reject_candidate`、`set_suggestions` 处理记忆提议，`recallPersonalMemories` 返回当前用途可读的记录。 | `personal_memories` 中的个人记录及其来源、用途授权，`personal_memory_candidates` 中待确认的提议与去重指纹，以及操作收据。 |
 | 基础设施 | 模型适配器 · `src/models/chat-completions.ts` | 将内核的模型请求转换成 Chat Completions 调用，传递取消信号并校验供应商响应。 | 供应商配置和单次调用的传输数据。 |
 | 基础设施 | PostgreSQL · `src/storage`、`migrations` | 提供数据库连接、通用事务入口、建表和演示初始化。 | 按各模块定义存储数据，由所有者维护写入规则。 |
@@ -218,6 +219,17 @@ Web 侧栏的「运行设置」由部署名单控制。`GET /api/agent-settings`
 5. **学习记录。** `GET /api/learning-record` 按发起讨论的轮次汇总复习主题、来源、所在对话、作答历史和下次复习时间。`POST /api/learning-record/commands` 受理 `stop_topic`（取消该主题待处理的邀请，并记入 `review_topic_stops`，之后不再安排）和 `resume_reminders`（重新开启复习提醒）。两种命令只朝一个方向改变状态，重复提交结果相同。
 
 验收用固定模型和时钟走通从材料讨论到主动邀请、作答和再次安排。检查建议异常时正常回复、到期前保持无邀请、略过后继续对话、跨端重放、停止提醒和来源失效。评价复习效果时抽样检查间隔后的换题作答。
+
+### 学习目标
+
+学习目标记录用户想长期学会的事，例如「看懂天气图」。它属于用户本人，由学习目标领域（`src/app/learning-goals.ts`）维护，存在 `learning_goals` 中：标题（不超过 40 字）、为什么想学和当前进展（各不超过 200 字）、状态（进行中、已暂停、已完成）和修订号。每个用户最多 20 个目标，同时进行中的最多 5 个。
+
+- **命令与收据。** `GET /api/learning-goals` 返回全部目标。`POST /api/learning-goals/commands` 受理 `create`、`update`、`delete`，每条命令带稳定的 `commandId`，收据存在 `learning_goal_command_receipts`。同一命令重放返回当前列表，同一 ID 换了内容返回 `409`。修改和删除带 `expectedRevision`，另一端先改过时返回 `409`。新目标的 ID 取创建命令的 ID。
+- **Agent 提议。** 在线普通对话里，用户表达了想长期学会某件事、而进行中的目标里没有相近的，模型可以在回复末尾附一个 `goal` 代码块，解析为 `goal_proposal` 内容块（标题和为什么想学），每条回复最多一个，格式无效时留在正文里。模型容易换个说法重复提议已有的目标，所以服务端发布前再核对一次：提议标题与用户任何状态的目标有一半以上的词元相同（拉丁字母和数字按整词，其余按相邻两字，忽略空格和标点）时，丢弃这条提议。提议只是回复的一部分，用户点「设为学习目标」才创建目标；创建命令带上提议所在的请求 ID 和块 ID，服务端核对这个块确实在该用户已发布的回复里，同一提议只能建一个目标。各端按目标列表里的提议块 ID 显示「已设为学习目标」。
+- **进入模型输入。** 在线普通对话把进行中目标的标题、为什么想学和当前进展放进参考数据，与参考记忆同一段，标明是用户设定的目标、只作为背景。已暂停和已完成的目标不发送。目标只是背景信息，回复不记录用到了哪些目标；目标在生成期间被修改，不影响这条回复发布。材料讨论和本地引导不读取目标。
+- **删除。** 删除目标只删这一行，收据保留用于识别重放；已发布回复里的提议仍然显示，可以重新设为目标。删除账号时目标随用户删除。
+
+把对话、材料和复习主题归到目标下、按目标查看学习记录，以及 Agent 主动建议推进某个目标，留到后续。
 
 ## 5. 对话摘要与个人记忆
 

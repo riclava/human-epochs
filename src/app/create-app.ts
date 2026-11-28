@@ -13,6 +13,7 @@ import { processNextMemoryExtraction } from "./memory-extraction.js";
 import { createPersonalMemoryService } from "./personal-memories.js";
 import { createLearningService } from "./learning-record.js";
 import { createMaterialLibrary } from "./material-library.js";
+import { createLearningGoalService } from "./learning-goals.js";
 
 export function createApp(
   pool: Pool, model: ModelClient | null, settingsAdminEmails?: string, modelOptions?: ModelOptions,
@@ -28,6 +29,7 @@ export function createApp(
     personalMemories: createPersonalMemoryService(pool),
     learning: createLearningService(pool),
     materials: createMaterialLibrary(pool),
+    goals: createLearningGoalService(pool),
     settings,
     accounts: { pool, registration },
   }, { logger, trustProxy, production });

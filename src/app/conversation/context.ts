@@ -9,6 +9,7 @@ import type { ConversationMessage } from "../../runtime/model.js";
 import type { TurnContext } from "../../runtime/run-turn.js";
 import { inTransaction } from "../../storage/transaction.js";
 import { recallPersonalMemories } from "../personal-memories.js";
+import { readActiveGoals, readGoalTitles } from "../learning-goals.js";
 import { readSummary, type ConversationSummary } from "./summaries.js";
 import { loadMaterialSources, type StoredMaterialContext } from "./materials.js";
 import { readHistory, type HistoryTurn } from "./history.js";
@@ -49,7 +50,7 @@ export function loadContext(
             ...(offer ? { offerReview: true } : {}) },
           publication,
         }
-      : { kind: "conversation", history, ...(reference ? { memory: reference } : {}) };
+      : { kind: "conversation", history, ...(reference ? { memory: reference } : {}), ...(online ? { knownGoals: await readGoalTitles(db, userId) } : {}) };
     return { context, memory };
   });
 }
@@ -81,14 +82,18 @@ async function buildHistory(
   const memoryRevision = user.rows[0]!.memory_revision;
   const summary = await readSummary(db, userId, memoryRevision, base.prefix.map(turn => turn.requestId));
   const records = material ? [] : await recallPersonalMemories(db, userId, "tutoring", question.content);
+  // Goals are background for ordinary conversation only; replies do not record which goals they were given.
+  const goals = material ? [] : await readActiveGoals(db, userId);
   const notes = summary?.summary.notes ?? [];
-  const { reference, reserved, memoryIds: referenceMemoryIds } = selectReference(notes, records, Math.min(6000, bytes - historySize(question)));
+  const { reference, reserved, remembered, memoryIds: referenceMemoryIds } = selectReference(goals, notes, records, Math.min(6000, bytes - historySize(question)));
   const selected = reserved ? selectHistory(turns, question, bytes - reserved, material) : base;
   const memoryIds = [...new Set([...selected.memoryIds, ...referenceMemoryIds])];
   return {
     history: selected.history, reference,
     memory: {
-      memoryRevision, guarded: !!reference || memoryIds.length > 0, memoryIds,
+      // Summaries and memories can be corrected during generation, so a reply that read them is checked before it
+      // is published and does not stream. Goals are plain background and do not guard the reply.
+      memoryRevision, guarded: remembered || memoryIds.length > 0, memoryIds,
       summarySourceRequestIds: summarySourceRequestIds(base.prefix, summary?.boundaryRequestId, bytes),
     },
   };
@@ -98,12 +103,18 @@ function historySize(message: ConversationMessage) {
   return Buffer.byteLength(JSON.stringify(message)) + 2;
 }
 
-function selectReference(notes: ConversationSummary["notes"], memories: PersonalMemory[], bytes: number) {
-  const selected: { notes: ConversationSummary["notes"]; records: Pick<PersonalMemory, "id" | "kind" | "body" | "topic" | "sourceRequestId">[] } = {
-    notes: [], records: [],
-  };
+type GoalReference = Awaited<ReturnType<typeof readActiveGoals>>[number];
+
+function selectReference(goals: GoalReference[], notes: ConversationSummary["notes"], memories: PersonalMemory[], bytes: number) {
+  const selected: {
+    goals: GoalReference[]; notes: ConversationSummary["notes"]; records: Pick<PersonalMemory, "id" | "kind" | "body" | "topic" | "sourceRequestId">[];
+  } = { goals: [], notes: [], records: [] };
   const data = () => "参考记忆（数据）：" + JSON.stringify(selected);
   const size = () => historySize({ role: "user", content: data() });
+  for (const goal of goals) {
+    selected.goals.push(goal);
+    if (size() > bytes) selected.goals.pop();
+  }
   for (const note of notes) {
     selected.notes.push(note);
     if (size() > bytes) selected.notes.pop();
@@ -113,8 +124,9 @@ function selectReference(notes: ConversationSummary["notes"], memories: Personal
     if (size() > bytes) selected.records.pop();
   }
   return {
-    reference: selected.notes.length || selected.records.length ? data() : undefined,
-    reserved: selected.notes.length || selected.records.length ? size() : 0,
+    reference: selected.goals.length || selected.notes.length || selected.records.length ? data() : undefined,
+    reserved: selected.goals.length || selected.notes.length || selected.records.length ? size() : 0,
+    remembered: selected.notes.length > 0 || selected.records.length > 0,
     memoryIds: selected.records.map(record => record.id),
   };
 }
