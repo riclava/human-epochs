@@ -13,9 +13,11 @@
     "db:up": "docker compose up -d --wait",
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "db:seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
+    "account:create": "tsx --env-file-if-exists=.env scripts/create-account.ts",
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && vite build",
-    "start": "tsx --env-file-if-exists=.env src/app/server.ts",
+    "build": "npm run typecheck && vite build && npm run build:server",
+    "build:server": "rm -rf dist/server && tsc -p tsconfig.server.json",
+    "start": "node --env-file-if-exists=.env dist/server/src/app/server.js",
     "test": "tsx --env-file-if-exists=.env --test tests/*.test.ts",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm test"

@@ -1,0 +1,30 @@
+# Runs the app and PostgreSQL together: docker compose -f compose.production.yaml --env-file .env.production up -d --build
+# .env.production must set POSTGRES_PASSWORD, MODEL_CREDENTIAL_ENCRYPTION_KEY and AGENT_SETTINGS_ADMIN_EMAILS.
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: human_epochs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: human_epochs
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U human_epochs -d human_epochs"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env.production
+    environment:
+      DATABASE_URL: postgresql://human_epochs:${POSTGRES_PASSWORD}@db:5432/human_epochs
+    ports:
+      - "127.0.0.1:3001:3001"
+volumes:
+  postgres-data:

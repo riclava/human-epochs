@@ -43,7 +43,27 @@ npm start
 
 `check` 包含类型检查、契约测试和 PostgreSQL 接口测试。接口测试创建并清理独立数据库，因此 `DATABASE_URL` 对应账号需有创建数据库权限，本地 Compose 账号已具备。浏览器测试也会创建、迁移并清理专用数据库，使用 5317/3307 端口启动 Web 和 API。浏览器用例验证对话与跨端续读。
 
-`build` 生成 Web 产物，`start` 通过同一个服务端提供 API 和构建后的页面，可从 [本地服务](http://127.0.0.1:3001) 打开。配置通过服务端环境变量读取，演示凭据提示仅在开发页面显示。
+`build` 生成 Web 产物并把服务端编译到 `dist/server`，`start` 用 Node.js 直接运行编译结果，通过同一个服务端提供 API 和构建后的页面，可从 [本地服务](http://127.0.0.1:3001) 打开。配置通过服务端环境变量读取，演示凭据提示仅在开发页面显示。
+
+每次推送由 [GitHub Actions](.github/workflows/ci.yml) 运行类型检查、接口测试、构建和浏览器测试。
+
+## 部署
+
+镜像包含编译后的服务端、页面产物和迁移文件，以非 root 用户运行，启动时自动执行迁移。用 Compose 同时运行应用和 PostgreSQL：
+
+```sh
+cp .env.production.example .env.production   # 填写数据库密码、加密密钥和管理员邮箱
+docker compose -f compose.production.yaml --env-file .env.production up -d --build
+echo '<至少 10 位的密码>' | docker compose -f compose.production.yaml exec -T app \
+  node dist/server/scripts/create-account.js --email <管理员邮箱> --name <名字>
+```
+
+- **生产配置检查。** `NODE_ENV=production` 时，缺少 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 或管理员名单仍是演示账号，服务会列出问题并拒绝启动。生产环境不创建演示账号。
+- **对外访问。** 应用只监听本机的 3001 端口，由反向代理提供 HTTPS（登录 Cookie 只在 HTTPS 下发送）。代理会转发用户地址时设置 `TRUST_PROXY=1`，否则限流会把所有用户算作同一地址。
+- **健康检查。** `/api/healthz` 表示进程在运行，`/api/readyz` 还要求数据库可用，镜像的健康检查使用后者。
+- **限流。** 同一账号 15 分钟内输错 10 次密码、同一地址输错 30 次，会暂停登录 15 分钟；同一地址每小时最多注册 5 次。计数保存在进程内，运行多个实例时需要改为共享存储。
+- **日志。** 生产环境向标准输出写 JSON 日志，包含请求方法、路径、状态和耗时，不记录请求体和 Cookie。
+- **备份。** 数据都在 PostgreSQL 中，可用 `docker compose -f compose.production.yaml exec db pg_dump -U human_epochs human_epochs > backup.sql` 备份。
 
 ## 当前交付
 

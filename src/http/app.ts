@@ -19,6 +19,8 @@ import { registerConversation } from "./conversation.js";
 import { registerPersonalMemories } from "./personal-memories.js";
 import { registerLearningRecord } from "./learning-record.js";
 import { registerMaterialLibrary } from "./material-library.js";
+import { createRateLimit } from "../app/rate-limit.js";
+import { addSecurityHeaders } from "./security.js";
 import { registerAccountCommands, registerSignUp, sessionCookie, setSessionCookie, type RegistrationPolicy } from "./accounts.js";
 
 declare module "fastify" {
@@ -43,9 +45,31 @@ interface HttpServices {
   accounts: { pool: Pool; registration: RegistrationPolicy };
 }
 
-export function createHttpApp({ auth, conversation, activities, settings, personalMemories, learning, materials, accounts }: HttpServices, logger: FastifyServerOptions["logger"] = false) {
-  const app = Fastify({ logger, logController: new LogController({ disableRequestLogging: true }) });
+export interface HttpOptions {
+  logger?: FastifyServerOptions["logger"];
+  // Proxies trusted to report the client address, as Fastify's trustProxy takes them.
+  trustProxy?: boolean | number;
+  production?: boolean;
+}
+
+// Failed sign-ins are limited per address and per account, so guessing a password is slow from one place and
+// against one person. Successful sign-ins are not counted.
+const signInFailures = () => ({
+  byAddress: createRateLimit({ limit: 30, windowMs: 15 * 60 * 1000 }),
+  byEmail: createRateLimit({ limit: 10, windowMs: 15 * 60 * 1000 }),
+});
+
+export function createHttpApp(
+  { auth, conversation, activities, settings, personalMemories, learning, materials, accounts }: HttpServices,
+  { logger = false, trustProxy = false, production = false }: HttpOptions = {},
+) {
+  // A hop count trusts that many proxies nearest the server.
+  const proxies = typeof trustProxy === "number" ? (_address: string, hop: number) => hop < trustProxy : trustProxy;
+  const options: FastifyServerOptions = { logger, trustProxy: proxies, logController: new LogController({ disableRequestLogging: !production }) };
+  const app = Fastify(options);
+  const failures = signInFailures();
   app.register(cookie);
+  addSecurityHeaders(app, production);
   app.register(async api => {
     api.addHook("onRequest", async (_request, reply) => {
       reply.header("Cache-Control", "private, no-store");
@@ -54,13 +78,31 @@ export function createHttpApp({ auth, conversation, activities, settings, person
     api.post("/login", async (request, reply) => {
       const parsed = loginSchema.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ message: "请输入有效的电子邮箱和密码。" });
+      if (failures.byAddress.blocked(request.ip) || failures.byEmail.blocked(parsed.data.email)) {
+        return reply.code(429).send({ message: "尝试次数太多。请 15 分钟后再登录。" });
+      }
       const session = await auth.signIn(parsed.data.email, parsed.data.password);
-      if (!session) return reply.code(401).send({ message: "电子邮箱或密码不正确。" });
+      if (!session) {
+        failures.byAddress.record(request.ip);
+        failures.byEmail.record(parsed.data.email);
+        return reply.code(401).send({ message: "电子邮箱或密码不正确。" });
+      }
       setSessionCookie(reply, session.token);
       return { user: session.user };
     });
 
     registerSignUp(api, accounts.pool, accounts.registration);
+
+    // Liveness says the process answers; readiness also needs the database.
+    api.get("/healthz", async () => ({ status: "ok" }));
+    api.get("/readyz", async (_request, reply) => {
+      try {
+        await accounts.pool.query("SELECT 1");
+        return { status: "ok" };
+      } catch {
+        return reply.code(503).send({ status: "unavailable" });
+      }
+    });
 
     api.post("/logout", async (request, reply) => {
       await auth.signOut(request.cookies[sessionCookie]);
