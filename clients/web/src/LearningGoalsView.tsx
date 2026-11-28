@@ -4,6 +4,7 @@ import {
   activeLearningGoalLimit, goalNoteLimit, goalTitleLimit, type LearningGoal, type LearningGoalCommand,
 } from '../../../src/contracts/learning-goal'
 import { useLearningGoals } from './learning-goals-client'
+import { conversationHref } from './routes'
 import type { WorkspacePageProps } from './workspace-pages'
 
 type Status = LearningGoal['status']
@@ -39,6 +40,22 @@ function GoalFields({ prefix, goal, error }: { prefix: string; goal?: Fields; er
     <textarea id={prefix + '-progress'} name="progress" rows={2} maxLength={goalNoteLimit} defaultValue={goal?.progress} />
     {error && <p id={errorId} role="alert" className="form-error">{error}</p>}
   </>
+}
+
+const resultText = { recalled: '独立答出', partial: '部分答出', forgotten: '没想起来' }
+
+// What has happened under the goal and where to continue: its recent conversations, with due reviews marked.
+function GoalActivity({ goal }: { goal: LearningGoal }) {
+  const { activity } = goal
+  if (!activity.conversationCount) return <p className="goal-activity">还没有对话归入这个目标。在对话标题下方选择「学习目标」即可归入。</p>
+  const facts = [`${activity.conversationCount} 个对话`, activity.reviewTopics && `${activity.reviewTopics} 个复习主题`,
+    activity.dueReviews && `${activity.dueReviews} 个复习已到期`, activity.latestResult && `最近一次复习：${resultText[activity.latestResult]}`]
+  return <div className="goal-activity">
+    <p>{facts.filter(Boolean).join(' · ')}</p>
+    <ul aria-label={`${goal.title} 的最近对话`}>{activity.conversations.map(item => <li key={item.id}>
+      <a href={conversationHref(item.id)}>{item.title}</a>{item.reviewDue && <span className="goal-badge">有复习到期</span>}
+    </li>)}</ul>
+  </div>
 }
 
 function GoalItem({ goal, busy, run, onDelete, onMoved }: {
@@ -77,6 +94,7 @@ function GoalItem({ goal, busy, run, onDelete, onMoved }: {
     <h3>{goal.title}</h3>
     {goal.motivation && <p><span className="goal-field">为什么想学</span>{goal.motivation}</p>}
     {goal.progress && <p><span className="goal-field">目前进展</span>{goal.progress}</p>}
+    <GoalActivity goal={goal} />
     {error && <p role="alert" className="form-error">{error}</p>}
     <div className="goal-actions">
       {statusActions[goal.status].map(action => <button key={action.status} type="button" disabled={busy}

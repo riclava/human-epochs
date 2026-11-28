@@ -71,17 +71,17 @@ test('Agent 提议的学习目标可以一键设为目标，并在学习目标�
     await expect(page.getByRole('heading', { level: 1, name: '学习目标' })).toBeVisible()
     const active = page.getByRole('region', { name: /进行中/ })
     await expect(active.getByRole('heading', { level: 2 })).toHaveText('进行中（1/5）')
-    await expect(active.getByRole('listitem')).toContainText('想自己判断周末能不能登山')
+    await expect(active.locator('.goal-item')).toContainText('想自己判断周末能不能登山')
 
     await active.getByRole('button', { name: '修改：看懂天气图' }).click()
     await page.getByLabel('目前学到哪里（可选）').first().fill('认识了等压线和锋面符号')
     await page.getByRole('button', { name: '保存' }).click()
-    await expect(active.getByRole('listitem')).toContainText('目前进展认识了等压线和锋面符号')
+    await expect(active.locator('.goal-item')).toContainText('目前进展认识了等压线和锋面符号')
     await expect(active.getByRole('button', { name: '修改：看懂天气图' })).toBeFocused()
 
     await page.getByLabel('想学会什么').fill('学会弹吉他')
     await page.getByRole('button', { name: '添加目标' }).click()
-    await expect(active.getByRole('listitem')).toHaveCount(2)
+    await expect(active.locator('.goal-item')).toHaveCount(2)
     await active.getByRole('button', { name: '暂停：学会弹吉他' }).click()
     await expect(page.getByRole('region', { name: '已暂停' }).getByRole('listitem')).toContainText('学会弹吉他')
     await expect(page.getByRole('heading', { level: 1, name: '学习目标' })).toBeFocused()
@@ -101,6 +101,69 @@ test('Agent 提议的学习目标可以一键设为目标，并在学习目标�
     provider.closeAllConnections()
     await admin.dispose()
     // Put the runtime settings back as they were, removing them when this test created them, so later tests run offline.
+    if (previous) await user.pool.query('UPDATE agent_settings SET revision = $1, settings = $2, connection = $3', [previous.revision, previous.settings, previous.connection])
+    else await user.pool.query('DELETE FROM agent_settings')
+  }
+})
+
+test('对话可以归入学习目标，Agent 提议的进展可以保存，目标页列出归入的对话', async ({ page, baseURL, playwright, user }) => {
+  const provider = createServer(async (request, response) => {
+    let body = ''
+    for await (const chunk of request) body += chunk
+    // Inside a goal the model sees currentGoal and proposes progress; elsewhere it just answers.
+    const reply = body.includes('\\"currentGoal\\":')
+      ? '对，冷锋过境后气温下降。\n\n```goal_progress\n{"progress":"我能说出冷锋过境时气温和气压的变化"}\n```'
+      : '冷锋过境时气温下降、气压上升。'
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    response.end(modelChunk(reply, 'stop') + 'data: [DONE]\n\n')
+  })
+  const { port, hostname } = new URL(testModelBaseUrl)
+  const admin = await playwright.request.newContext({ baseURL })
+  const { rows: [previous] } = await user.pool.query('SELECT revision, settings, connection FROM agent_settings')
+  try {
+    provider.listen(Number(port), hostname)
+    await once(provider, 'listening')
+    expect((await admin.post('/api/login', { data: { email: 'alice@example.test', password } })).ok()).toBe(true)
+    const { revision, settings } = agentSettingsViewSchema.parse(await (await admin.get('/api/agent-settings')).json())
+    expect((await admin.put('/api/agent-settings', { data: { expectedRevision: revision, settings, connection: {
+      baseUrl: testModelBaseUrl, modelId: 'test-goal', apiKey: 'fixture-key',
+    } } })).ok()).toBe(true)
+
+    await signIn(page, user.email)
+    await page.goto('/#/goals')
+    await page.getByLabel('想学会什么').fill('看懂天气图')
+    await page.getByLabel('目前学到哪里（可选）').fill('认识了等压线')
+    await page.getByRole('button', { name: '添加目标' }).click()
+    await expect(page.getByText('还没有对话归入这个目标。')).toBeVisible()
+
+    await page.getByRole('link', { name: '对话', exact: true }).click()
+    await expect(page.getByRole('button', { name: '发送消息' })).toBeEnabled()
+    await page.getByRole('textbox', { name: '对话消息' }).fill('冷锋过境时气温怎么变？')
+    await page.getByRole('button', { name: '发送消息' }).click()
+    await expect(log(page)).toContainText('气压上升')
+    const picker = page.getByRole('combobox', { name: '学习目标' })
+    await expect(picker).toHaveValue('')
+    await picker.selectOption({ label: '看懂天气图' })
+    await expect(picker).not.toHaveValue('')
+
+    await page.getByRole('textbox', { name: '对话消息' }).fill('所以冷锋过境后气温下降，对吗？')
+    await page.getByRole('button', { name: '发送消息' }).click()
+    const card = log(page).getByRole('region', { name: '看懂天气图' })
+    await expect(card).toContainText('我能说出冷锋过境时气温和气压的变化')
+    await expect(card).toContainText('原来的进展：认识了等压线')
+    await card.getByRole('button', { name: '更新目前进展' }).click()
+    await expect(card.getByRole('status')).toHaveText('已更新为目前进展。查看学习目标')
+
+    await card.getByRole('link', { name: '查看学习目标' }).click()
+    const goal = page.getByRole('region', { name: /进行中/ }).locator('.goal-item')
+    await expect(goal).toContainText('目前进展我能说出冷锋过境时气温和气压的变化')
+    await expect(goal).toContainText('1 个对话')
+    await goal.getByRole('link', { name: '冷锋过境时气温怎么变？' }).click()
+    await expect(page.getByRole('combobox', { name: '学习目标' })).not.toHaveValue('')
+  } finally {
+    provider.close()
+    provider.closeAllConnections()
+    await admin.dispose()
     if (previous) await user.pool.query('UPDATE agent_settings SET revision = $1, settings = $2, connection = $3', [previous.revision, previous.settings, previous.connection])
     else await user.pool.query('DELETE FROM agent_settings')
   }

@@ -19,11 +19,11 @@ export async function touchConversation(db: PoolClient, userId: string, conversa
   return true;
 }
 
-export async function readConversationTitle(db: Pool | PoolClient, userId: string, conversationId: string) {
-  const { rows: [conversation] } = await db.query<{ title: string }>(
-    "SELECT title FROM conversations WHERE user_id = $1 AND id = $2", [userId, conversationId],
+export async function readConversationHeading(db: Pool | PoolClient, userId: string, conversationId: string) {
+  const { rows: [conversation] } = await db.query<{ title: string; goalId: string | null }>(
+    'SELECT title, goal_id AS "goalId" FROM conversations WHERE user_id = $1 AND id = $2', [userId, conversationId],
   );
-  return conversation?.title ?? null;
+  return { title: conversation?.title ?? null, goalId: conversation?.goalId ?? null };
 }
 
 export async function listConversations(db: Pool | PoolClient, userId: string): Promise<ConversationList> {
@@ -51,6 +51,15 @@ async function deleteConversation(db: PoolClient, userId: string, conversationId
   return true;
 }
 
+// Only the user's own goal can hold the conversation.
+async function setConversationGoal(db: PoolClient, userId: string, conversationId: string, goalId: string | null) {
+  const updated = await db.query(`
+    UPDATE conversations SET goal_id = $3 WHERE user_id = $1 AND id = $2
+      AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM learning_goals WHERE user_id = $1 AND id = $3))
+  `, [userId, conversationId, goalId]);
+  return updated.rowCount === 1;
+}
+
 async function renameConversation(db: PoolClient, userId: string, conversationId: string, title: string) {
   const renamed = await db.query("UPDATE conversations SET title = $3 WHERE user_id = $1 AND id = $2", [userId, conversationId, title]);
   return renamed.rowCount === 1;
@@ -58,15 +67,16 @@ async function renameConversation(db: PoolClient, userId: string, conversationId
 
 export function runConversationCommand(pool: Pool, userId: string, conversationId: string, command: ConversationCommand) {
   const fingerprint = createHash("sha256")
-    .update(JSON.stringify([conversationId, command.operation, command.operation === "rename" ? command.title : null])).digest("hex");
+    .update(JSON.stringify([conversationId, command.operation,
+      command.operation === "rename" ? command.title : command.operation === "set_goal" ? command.goalId : null])).digest("hex");
   return inTransaction(pool, async db => {
     await db.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
     const { rows: [receipt] } = await db.query<{ matches: boolean }>(`
       SELECT command_fingerprint = $3 AS matches FROM conversation_command_receipts WHERE user_id = $1 AND command_id = $2
     `, [userId, command.commandId, fingerprint]);
     if (receipt) return receipt.matches ? { kind: "saved", list: await listConversations(db, userId) } as const : { kind: "conflict" } as const;
-    const done = command.operation === "delete"
-      ? await deleteConversation(db, userId, conversationId)
+    const done = command.operation === "delete" ? await deleteConversation(db, userId, conversationId)
+      : command.operation === "set_goal" ? await setConversationGoal(db, userId, conversationId, command.goalId)
       : await renameConversation(db, userId, conversationId, command.title);
     if (!done) return { kind: "missing" } as const;
     await db.query(`

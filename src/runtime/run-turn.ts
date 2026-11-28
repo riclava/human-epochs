@@ -2,7 +2,7 @@ import type { ConversationContentDraft, ConversationMode, ConversationProgress, 
 import type { ReviewOutcome, ReviewProposal } from "../review/proposal.js";
 import { defaultAgentSettings, type AgentSettings } from "../contracts/agent-settings.js";
 import type { ObserveRun } from "./diagnostics.js";
-import { splitConversationReply, withoutKnownGoals } from "./conversation-blocks.js";
+import { settleGoalProposals, splitConversationReply } from "./conversation-blocks.js";
 import { guideConversation } from "./local-guidance.js";
 import { discussMaterial, type MaterialPublication } from "./material-discussion.js";
 import { ModelFailure, type CallModel, type MaterialPrompt, type ReplyDelta, type ConversationMessage, type ModelClient } from "./model.js";
@@ -11,7 +11,7 @@ import { runModelLoop } from "./model-loop.js";
 import { conversationPrompt, memoryDataNote } from "./prompts.js";
 
 export type TurnContext =
-  | { kind: "conversation"; history: ConversationMessage[]; memory?: string; knownGoals?: string[] }
+  | { kind: "conversation"; history: ConversationMessage[]; memory?: string; knownGoals?: string[]; currentGoalId?: string }
   | { kind: "material"; prompt: MaterialPrompt; publication?: MaterialPublication };
 
 export interface TurnReply {
@@ -94,7 +94,7 @@ export function createTurnRunner(model: ModelClient | null, now = Date.now) {
                 : limitModelHistory(context.history, settings.historyBytes), format: "text",
             })
             : guideConversation(context.history);
-          output = textReply(reply.replace(/[\u0000\uD800-\uDFFF]/gu, "").trim(), context.knownGoals ?? []);
+          output = textReply(reply.replace(/[\u0000\uD800-\uDFFF]/gu, "").trim(), context.knownGoals ?? [], context.currentGoalId);
           break;
         }
         case "material": {
@@ -116,6 +116,6 @@ export function createTurnRunner(model: ModelClient | null, now = Date.now) {
   return { mode, runTurn };
 }
 
-function textReply(text: string, knownGoals: readonly string[]): TurnReply {
-  return { replyBlocks: text ? withoutKnownGoals(splitConversationReply(text), knownGoals) : [] };
+function textReply(text: string, knownGoals: readonly string[], currentGoalId?: string): TurnReply {
+  return { replyBlocks: text ? settleGoalProposals(splitConversationReply(text), knownGoals, currentGoalId) : [] };
 }

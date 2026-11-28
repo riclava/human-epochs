@@ -5,6 +5,7 @@ export const learningGoalLimit = 20
 export const activeLearningGoalLimit = 5
 export const goalTitleLimit = 40
 export const goalNoteLimit = 200
+export const goalProgressProposalLimit = 80
 
 const clean = (max: number) => z.string().trim().max(max).refine(text => !/[\u0000-\u0008\u000b-\u001f\uD800-\uDFFF]/u.test(text))
 const id = z.uuid().toLowerCase()
@@ -26,6 +27,16 @@ export const learningGoalCommandSchema = z.discriminatedUnion('operation', [
 ])
 export type LearningGoalCommand = z.infer<typeof learningGoalCommandSchema>
 
+// What has happened under a goal, read from the conversations that belong to it.
+export interface LearningGoalActivity {
+  conversationCount: number
+  // The most recently used conversations, each marked when a review in it is due.
+  conversations: { id: string; title: string; updatedAt: string; reviewDue: boolean }[]
+  reviewTopics: number
+  dueReviews: number
+  latestResult: 'recalled' | 'partial' | 'forgotten' | null
+}
+
 export interface LearningGoal {
   id: string
   revision: number
@@ -36,6 +47,7 @@ export interface LearningGoal {
   // The proposal block this goal was accepted from, so every device marks that proposal as taken.
   proposalBlockId: string | null
   updatedAt: string
+  activity: LearningGoalActivity
 }
 
 export interface LearningGoalList {

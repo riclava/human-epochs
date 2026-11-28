@@ -1,12 +1,12 @@
 import { conversationContentDraftSchema, type ConversationContentDraft } from "../contracts/conversation.js";
 
-export const structuredFenceKinds = ["event_log", "diagram", "goal"] as const;
+export const structuredFenceKinds = ["event_log", "diagram", "goal", "goal_progress"] as const;
 export const structuredBlockLimit = 3;
 
 // A fence opens at the start of a line with ``` and a structured kind, and closes at the next line that is only ```.
-const fence = /^```(event_log|diagram|goal)[ \t]*\n([\s\S]*?)\n```[ \t]*$/gmu;
+const fence = /^```(event_log|diagram|goal|goal_progress)[ \t]*\n([\s\S]*?)\n```[ \t]*$/gmu;
 // The fence name the model writes, and the block kind it becomes.
-const blockKind = (fenceKind: string) => fenceKind === "goal" ? "goal_proposal" : fenceKind;
+const blockKind = (fenceKind: string) => ({ goal: "goal_proposal", goal_progress: "goal_progress_proposal" })[fenceKind] ?? fenceKind;
 
 function parseStructured(fenceKind: string, body: string): ConversationContentDraft | null {
   const kind = blockKind(fenceKind);
@@ -17,8 +17,9 @@ function parseStructured(fenceKind: string, body: string): ConversationContentDr
     return null;
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  // Ordinary conversation has no readable source, so any citations the model invents are dropped.
-  const { citations: _citations, kind: _kind, ...fields } = value as Record<string, unknown>;
+  // Ordinary conversation has no readable source, so any citations the model invents are dropped, and the goal a
+  // progress proposal is for comes from the conversation, not the model.
+  const { citations: _citations, kind: _kind, goalId: _goalId, ...fields } = value as Record<string, unknown>;
   const parsed = conversationContentDraftSchema.safeParse({ ...fields, kind });
   return parsed.success && parsed.data.kind === kind ? parsed.data : null;
 }
@@ -39,20 +40,25 @@ function sameGoal(a: string, b: string) {
   return shared / Math.min(left.size, right.size) >= 0.5;
 }
 
-// Drops a goal proposal that repeats a goal the user already has, in any status.
-export function withoutKnownGoals(blocks: ConversationContentDraft[], knownTitles: readonly string[]) {
-  return blocks.filter(block => block.kind !== "goal_proposal" || !knownTitles.some(title => sameGoal(title, block.title)));
+// Drops a goal proposal that repeats a goal the user already has, in any status, and gives a progress proposal the
+// conversation's active goal, dropping it when there is none.
+export function settleGoalProposals(blocks: ConversationContentDraft[], knownTitles: readonly string[], currentGoalId?: string) {
+  return blocks.flatMap((block): ConversationContentDraft[] => {
+    if (block.kind === "goal_proposal") return knownTitles.some(title => sameGoal(title, block.title)) ? [] : [block];
+    if (block.kind === "goal_progress_proposal") return currentGoalId ? [{ ...block, goalId: currentGoalId }] : [];
+    return [block];
+  });
 }
 
 // Splits a Markdown reply at structured fences. Valid fences become event log, diagram or goal proposal blocks in
-// place; an invalid fence stays in the text as an ordinary code block, so a malformed view never fails the reply. A
-// reply keeps at most one goal proposal.
+// place; an invalid view stays in the text as an ordinary code block, so a malformed view never fails the reply, and
+// an invalid proposal is dropped. A reply keeps at most one proposal of each kind.
 export function splitConversationReply(reply: string): ConversationContentDraft[] {
   const blocks: ConversationContentDraft[] = [];
   let text = "";
   let cursor = 0;
   let structured = 0;
-  let proposed = false;
+  const proposed = new Set<string>();
   const flush = () => {
     const trimmed = text.trim();
     if (trimmed) blocks.push({ kind: "text", text: trimmed });
@@ -61,14 +67,15 @@ export function splitConversationReply(reply: string): ConversationContentDraft[
   for (const match of reply.matchAll(fence)) {
     text += reply.slice(cursor, match.index);
     cursor = match.index + match[0].length;
-    const isGoal = match[1] === "goal";
-    if (isGoal && proposed) continue;
+    const isGoal = match[1]!.startsWith("goal");
+    if (isGoal && proposed.has(match[1]!)) continue;
     const block = isGoal || structured < structuredBlockLimit ? parseStructured(match[1]!, match[2]!) : null;
     if (!block) {
-      text += match[0];
+      // A malformed view stays readable as code; a malformed proposal is only raw JSON, so it is left out.
+      if (!isGoal) text += match[0];
       continue;
     }
-    if (isGoal) proposed = true;
+    if (isGoal) proposed.add(match[1]!);
     else structured++;
     flush();
     blocks.push(block);

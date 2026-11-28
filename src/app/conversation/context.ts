@@ -9,7 +9,7 @@ import type { ConversationMessage } from "../../runtime/model.js";
 import type { TurnContext } from "../../runtime/run-turn.js";
 import { inTransaction } from "../../storage/transaction.js";
 import { recallPersonalMemories } from "../personal-memories.js";
-import { readActiveGoals, readGoalTitles } from "../learning-goals.js";
+import { readActiveGoals, readConversationGoal, readGoalTitles } from "../learning-goals.js";
 import { readSummary, type ConversationSummary } from "./summaries.js";
 import { loadMaterialSources, type StoredMaterialContext } from "./materials.js";
 import { readHistory, type HistoryTurn } from "./history.js";
@@ -36,7 +36,8 @@ export function loadContext(
     }
 
     const prior = await readHistory(db, userId, requestId, text, !!materialContext);
-    const { history, reference, memory } = await buildHistory(db, userId, prior, question, settings.historyBytes, !!materialContext, online);
+    const currentGoal = online && !materialContext ? await readConversationGoal(db, userId, requestId) : undefined;
+    const { history, reference, memory } = await buildHistory(db, userId, prior, question, settings.historyBytes, !!materialContext, online, currentGoal);
     const publication = materialContext && publishedDiscussions.find(item => item.discussionVersion === materialContext.discussionVersion);
     // Any material whose sources are still valid can be reviewed later, whether it is a course or the user's own text.
     const offer = online && materialContext && !reference
@@ -50,7 +51,10 @@ export function loadContext(
             ...(offer ? { offerReview: true } : {}) },
           publication,
         }
-      : { kind: "conversation", history, ...(reference ? { memory: reference } : {}), ...(online ? { knownGoals: await readGoalTitles(db, userId) } : {}) };
+      : {
+          kind: "conversation", history, ...(reference ? { memory: reference } : {}),
+          ...(online ? { knownGoals: await readGoalTitles(db, userId) } : {}), ...(currentGoal ? { currentGoalId: currentGoal.id } : {}),
+        };
     return { context, memory };
   });
 }
@@ -74,7 +78,7 @@ function selectHistory(turns: HistoryTurn[], question: ConversationMessage, byte
 
 async function buildHistory(
   db: PoolClient, userId: string, turns: HistoryTurn[], question: ConversationMessage, bytes: number, material: boolean,
-  online: boolean,
+  online: boolean, currentGoal?: CurrentGoal,
 ): Promise<{ history: ConversationMessage[]; reference?: string; memory?: TurnMemory }> {
   const base = selectHistory(turns, question, bytes, material);
   if (!online) return { history: base.history };
@@ -85,7 +89,7 @@ async function buildHistory(
   // Goals are background for ordinary conversation only; replies do not record which goals they were given.
   const goals = material ? [] : await readActiveGoals(db, userId);
   const notes = summary?.summary.notes ?? [];
-  const { reference, reserved, remembered, memoryIds: referenceMemoryIds } = selectReference(goals, notes, records, Math.min(6000, bytes - historySize(question)));
+  const { reference, reserved, remembered, memoryIds: referenceMemoryIds } = selectReference({ goals, currentGoal }, notes, records, Math.min(6000, bytes - historySize(question)));
   const selected = reserved ? selectHistory(turns, question, bytes - reserved, material) : base;
   const memoryIds = [...new Set([...selected.memoryIds, ...referenceMemoryIds])];
   return {
@@ -104,14 +108,22 @@ function historySize(message: ConversationMessage) {
 }
 
 type GoalReference = Awaited<ReturnType<typeof readActiveGoals>>[number];
+type CurrentGoal = NonNullable<Awaited<ReturnType<typeof readConversationGoal>>>;
 
-function selectReference(goals: GoalReference[], notes: ConversationSummary["notes"], memories: PersonalMemory[], bytes: number) {
+function selectReference(
+  { goals, currentGoal }: { goals: GoalReference[]; currentGoal?: CurrentGoal }, notes: ConversationSummary["notes"], memories: PersonalMemory[], bytes: number,
+) {
   const selected: {
-    goals: GoalReference[]; notes: ConversationSummary["notes"]; records: Pick<PersonalMemory, "id" | "kind" | "body" | "topic" | "sourceRequestId">[];
-  } = { goals: [], notes: [], records: [] };
+    currentGoal?: GoalReference; goals: GoalReference[]; notes: ConversationSummary["notes"];
+    records: Pick<PersonalMemory, "id" | "kind" | "body" | "topic" | "sourceRequestId">[];
+  } = {
+    // The goal this conversation belongs to comes first and is not repeated among the other goals.
+    ...(currentGoal ? { currentGoal: { title: currentGoal.title, motivation: currentGoal.motivation, progress: currentGoal.progress } } : {}),
+    goals: [], notes: [], records: [],
+  };
   const data = () => "参考记忆（数据）：" + JSON.stringify(selected);
   const size = () => historySize({ role: "user", content: data() });
-  for (const goal of goals) {
+  for (const goal of goals.filter(item => item.title !== currentGoal?.title)) {
     selected.goals.push(goal);
     if (size() > bytes) selected.goals.pop();
   }
@@ -124,8 +136,8 @@ function selectReference(goals: GoalReference[], notes: ConversationSummary["not
     if (size() > bytes) selected.records.pop();
   }
   return {
-    reference: selected.goals.length || selected.notes.length || selected.records.length ? data() : undefined,
-    reserved: selected.goals.length || selected.notes.length || selected.records.length ? size() : 0,
+    reference: selected.currentGoal || selected.goals.length || selected.notes.length || selected.records.length ? data() : undefined,
+    reserved: selected.currentGoal || selected.goals.length || selected.notes.length || selected.records.length ? size() : 0,
     remembered: selected.notes.length > 0 || selected.records.length > 0,
     memoryIds: selected.records.map(record => record.id),
   };

@@ -15,6 +15,8 @@ export interface LearningTopic {
   sourceLabel: string
   conversationId: string
   conversationTitle: string | null
+  // The learning goal of the conversation the topic came from.
+  goalId: string | null
   attempts: ReviewAttemptView[]
   nextReviewAt: string | null
   stopped: boolean

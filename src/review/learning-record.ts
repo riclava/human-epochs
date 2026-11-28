@@ -25,6 +25,7 @@ interface InvitationRow {
   sources: SavedSource[];
   conversationId: string;
   conversationTitle: string | null;
+  goalId: string | null;
 }
 
 export async function readLearningRecord(db: Pool | PoolClient, userId: string): Promise<LearningRecord> {
@@ -32,7 +33,7 @@ export async function readLearningRecord(db: Pool | PoolClient, userId: string):
     SELECT r.id, r.origin_request_id AS "originRequestId", r.proposal, r.due_at AS "dueAt",
       r.question_request_id AS "questionRequestId", r.cancelled,
       origin.material_context->>'discussionVersion' AS "discussionVersion", origin.material_context->'sources' AS sources,
-      origin.conversation_id AS "conversationId", conversation.title AS "conversationTitle"
+      origin.conversation_id AS "conversationId", conversation.title AS "conversationTitle", conversation.goal_id AS "goalId"
     FROM review_invitations r
     JOIN conversation_turns origin ON origin.user_id = r.user_id AND origin.request_id = r.origin_request_id
     LEFT JOIN conversations conversation ON conversation.user_id = r.user_id AND conversation.id = origin.conversation_id
@@ -54,7 +55,7 @@ export async function readLearningRecord(db: Pool | PoolClient, userId: string):
     const latest = invitation.proposal;
     const topic = topics.get(invitation.originRequestId) ?? {
       originRequestId: invitation.originRequestId, topic: latest.topic, sourceLabel: latest.source.label,
-      conversationId: invitation.conversationId, conversationTitle: invitation.conversationTitle,
+      conversationId: invitation.conversationId, conversationTitle: invitation.conversationTitle, goalId: invitation.goalId,
       attempts: [], nextReviewAt: null, stopped: stopped.has(invitation.originRequestId), lastActivity: 0,
     };
     // Invitations come in due order, so the last one seen carries the current topic wording.

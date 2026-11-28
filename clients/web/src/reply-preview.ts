@@ -5,7 +5,7 @@ const placeholder = '\n\n*正在整理图示…*\n\n'
 export function previewReplyText(text: string) {
   return text
     // A goal proposal appears as a card once the reply is published.
-    .replace(/^```goal[ \t]*\n[\s\S]*?(?:\n```[ \t]*$|(?![\s\S]))/gmu, '')
+    .replace(/^```goal(?:_progress)?[ \t]*\n[\s\S]*?(?:\n```[ \t]*$|(?![\s\S]))/gmu, '')
     .replace(/^```(?:event_log|diagram)[ \t]*\n[\s\S]*?(?:\n```[ \t]*$|(?![\s\S]))/gmu, placeholder)
     // A fence whose first line is still arriving would flash as code.
     .replace(/\n?```[a-z_]*$/u, '')

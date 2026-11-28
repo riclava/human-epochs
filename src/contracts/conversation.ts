@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { goalNoteLimit, goalTitleLimit } from './learning-goal.js'
+import { goalNoteLimit, goalProgressProposalLimit, goalTitleLimit } from './learning-goal.js'
 import type { PersonalMemorySnapshot } from './personal-memory.js'
 
 export const conversationTextLimit = 4000
@@ -127,14 +127,21 @@ const goalProposalFields = {
   motivation: z.string().trim().max(goalNoteLimit).default(''),
 }
 const goalProposalBlock = z.strictObject(goalProposalFields)
+// New progress for the goal the conversation belongs to. The server fills in the goal; the user decides whether to keep it.
+const goalProgressFields = {
+  kind: z.literal('goal_progress_proposal'),
+  progress: z.string().trim().min(1).max(goalProgressProposalLimit),
+}
+const goalProgressBlock = z.strictObject({ ...goalProgressFields, goalId: z.uuid().optional() })
 
-export const conversationContentDraftSchema = z.discriminatedUnion('kind', [textBlock, excerptBlock, eventLogBlock, diagramBlock, goalProposalBlock])
+export const conversationContentDraftSchema = z.discriminatedUnion('kind', [textBlock, excerptBlock, eventLogBlock, diagramBlock, goalProposalBlock, goalProgressBlock])
 export const conversationContentSchema = z.array(z.discriminatedUnion('kind', [
   textBlock.extend({ id: z.uuid() }),
   excerptBlock.extend({ id: z.uuid() }),
   z.strictObject({ ...eventLogFields, id: z.uuid() }).refine(block => !eventLogProblem(block), { message: 'Invalid event log references' }),
   z.strictObject({ ...diagramFields, id: z.uuid() }).refine(block => !diagramProblem(block), { message: 'Invalid diagram edges' }),
   z.strictObject({ ...goalProposalFields, id: z.uuid() }),
+  z.strictObject({ ...goalProgressFields, goalId: z.uuid(), id: z.uuid() }),
   z.strictObject({ kind: z.literal('unavailable'), id: z.uuid() }),
 ])).min(1).refine(blocks => new Set(blocks.map(block => block.id)).size === blocks.length)
 
@@ -144,6 +151,7 @@ export type ConversationContent = z.infer<typeof conversationContentSchema>
 export type EventLogBlock = Extract<ConversationContentDraft, { kind: 'event_log' }>
 export type DiagramBlock = Extract<ConversationContentDraft, { kind: 'diagram' }>
 export type GoalProposalBlock = Extract<ConversationContentDraft, { kind: 'goal_proposal' }>
+export type GoalProgressBlock = Extract<ConversationContent[number], { kind: 'goal_progress_proposal' }>
 
 // The text view keeps every relation in order and lists nodes that have no relation, so it carries the whole diagram.
 export function diagramLines(block: Pick<DiagramBlock, 'nodes' | 'edges'>) {
@@ -175,6 +183,7 @@ export function conversationContentText(content: readonly ConversationContentDra
     if (block.kind === 'diagram') return [[block.title, ...diagramLines(block).map(line => '- ' + line)].join('\n')]
     // The model sees what it proposed, so it does not propose the same goal again.
     if (block.kind === 'goal_proposal') return [`（提议设为学习目标：${block.title}）`]
+    if (block.kind === 'goal_progress_proposal') return [`（提议把目标进展更新为：${block.progress}）`]
     return []
   }).join('\n\n') || null
 }
@@ -238,6 +247,8 @@ export function conversationTitle(text: string) {
 export const conversationCommandSchema = z.discriminatedUnion('operation', [
   z.strictObject({ operation: z.literal('rename'), commandId: z.uuid().toLowerCase(), title: clean(conversationTitleLimit) }),
   z.strictObject({ operation: z.literal('delete'), commandId: z.uuid().toLowerCase() }),
+  // Puts the conversation under one of the user's learning goals, or under none.
+  z.strictObject({ operation: z.literal('set_goal'), commandId: z.uuid().toLowerCase(), goalId: z.uuid().toLowerCase().nullable() }),
 ])
 export type ConversationCommand = z.infer<typeof conversationCommandSchema>
 
@@ -245,6 +256,8 @@ export type ConversationCommand = z.infer<typeof conversationCommandSchema>
 export interface ConversationSnapshot extends PersonalMemorySnapshot {
   conversationId: string
   title: string | null
+  // The learning goal the conversation belongs to.
+  goalId: string | null
   mode: ConversationMode
   turns: ConversationTurn[]
   reviewInvitation?: ReviewInvitation

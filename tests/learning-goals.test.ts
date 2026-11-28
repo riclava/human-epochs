@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { createApp } from '../src/app/create-app.js'
 import type { LearningGoalList } from '../src/contracts/learning-goal.js'
 import type { ModelClient } from '../src/runtime/model.js'
-import { splitConversationReply, withoutKnownGoals } from '../src/runtime/conversation-blocks.js'
+import { splitConversationReply, settleGoalProposals } from '../src/runtime/conversation-blocks.js'
 import { createTestUser, removeTestUser } from './fixtures/activity.js'
 import { readConversationTurn } from './fixtures/conversation-stream.js'
 import { login, useTestDatabase } from './fixtures/test-database.js'
@@ -20,20 +20,22 @@ test('a reply keeps one valid goal proposal, and proposals do not count against 
   assert.deepEqual(blocks.map(block => block.kind), ['text', 'diagram', 'diagram', 'diagram', 'goal_proposal'])
   assert.deepEqual(blocks.at(-1), { kind: 'goal_proposal', title: '看懂天气图', motivation: '想自己判断周末能不能登山' })
   const invalid = splitConversationReply('好的。\n\n```goal\n{"title":""}\n```')
-  assert.deepEqual(invalid.map(block => block.kind), ['text'], 'an invalid proposal stays in the text')
+  assert.deepEqual(invalid, [{ kind: 'text', text: '好的。' }], 'an invalid proposal is dropped, not shown as raw JSON')
+  const long = splitConversationReply('对。\n\n```goal_progress\n{"progress":"' + '会'.repeat(81) + '"}\n```')
+  assert.deepEqual(long, [{ kind: 'text', text: '对。' }], 'progress over 80 characters is dropped too')
   assert.deepEqual(splitConversationReply('```goal\n{"title":"只有标题"}\n```'), [{ kind: 'goal_proposal', title: '只有标题', motivation: '' }],
     'the reason may be left out')
 })
 
 test('a proposal that repeats an existing goal is dropped, ignoring spacing and punctuation', () => {
   const blocks = splitConversationReply('好的。\n\n' + proposal)
-  assert.deepEqual(withoutKnownGoals(blocks, ['看懂 天气图！']).map(block => block.kind), ['text'])
-  assert.deepEqual(withoutKnownGoals(blocks, ['系统地看懂天气图']).map(block => block.kind), ['text'], 'a longer existing title covers it')
-  assert.deepEqual(withoutKnownGoals(blocks, ['系统学会看天气图判断登山']).map(block => block.kind), ['text'], 'a reworded title is the same goal')
-  assert.deepEqual(withoutKnownGoals(blocks, ['学吉他', '', '看懂财务报表']).map(block => block.kind), ['text', 'goal_proposal'], 'different goals stay')
+  assert.deepEqual(settleGoalProposals(blocks, ['看懂 天气图！']).map(block => block.kind), ['text'])
+  assert.deepEqual(settleGoalProposals(blocks, ['系统地看懂天气图']).map(block => block.kind), ['text'], 'a longer existing title covers it')
+  assert.deepEqual(settleGoalProposals(blocks, ['系统学会看天气图判断登山']).map(block => block.kind), ['text'], 'a reworded title is the same goal')
+  assert.deepEqual(settleGoalProposals(blocks, ['学吉他', '', '看懂财务报表']).map(block => block.kind), ['text', 'goal_proposal'], 'different goals stay')
   const python = splitConversationReply('```goal\n{"title":"学 Python 写爬虫"}\n```')
-  assert.equal(withoutKnownGoals(python, ['用 Python 做数据分析']).length, 1, 'one shared word does not make the same goal')
-  assert.equal(withoutKnownGoals(python, ['python爬虫']).length, 0)
+  assert.equal(settleGoalProposals(python, ['用 Python 做数据分析']).length, 1, 'one shared word does not make the same goal')
+  assert.equal(settleGoalProposals(python, ['python爬虫']).length, 0)
 })
 
 test('goals are changed by receipted commands, within their limits, and only by their owner', async t => {

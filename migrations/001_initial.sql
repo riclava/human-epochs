@@ -79,6 +79,8 @@ CREATE TABLE conversations (
   title text NOT NULL CHECK (length(title) BETWEEN 1 AND 80),
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  -- The learning goal this conversation belongs to. Reviews and discussions in it follow the same goal.
+  goal_id uuid,
   PRIMARY KEY (user_id, id)
 );
 
@@ -313,6 +315,10 @@ CREATE TABLE learning_goals (
   PRIMARY KEY (user_id, id),
   CHECK ((proposal_request_id IS NULL) = (proposal_block_id IS NULL))
 );
+
+-- Deleting a goal clears the conversations that belonged to it first, so this never blocks a deletion that is meant.
+ALTER TABLE conversations ADD FOREIGN KEY (user_id, goal_id) REFERENCES learning_goals(user_id, id);
+CREATE INDEX conversations_by_goal ON conversations (user_id, goal_id) WHERE goal_id IS NOT NULL;
 
 CREATE UNIQUE INDEX learning_goals_by_proposal ON learning_goals (user_id, proposal_block_id) WHERE proposal_block_id IS NOT NULL;
 

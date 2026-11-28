@@ -9,7 +9,7 @@ import { inTransaction } from "../../storage/transaction.js";
 import type { createAgentSettingsService } from "../agent-settings.js";
 import { readPersonalMemories } from "../personal-memories.js";
 import { loadContext } from "./context.js";
-import { isDeletedConversation, listConversations, readConversationTitle, runConversationCommand } from "./conversations.js";
+import { isDeletedConversation, listConversations, readConversationHeading, runConversationCommand } from "./conversations.js";
 import { listMaterials } from "./materials.js";
 import { runReviewInvitationCommand } from "./review-invitations.js";
 import { isActiveAttempt, publishTurn, readTurns, receiveTurn, stopActiveTurn, type TurnMemory } from "./turns.js";
@@ -109,16 +109,16 @@ export function createConversationService(
   // A deleted conversation has no snapshot.
   async function readSnapshot(userId: string, conversationId: string): Promise<ConversationSnapshot | null> {
     if (await isDeletedConversation(pool, userId, conversationId)) return null;
-    const [{ turns, title, reviewInvitation, personal }, { onlineModelAvailable }] = await Promise.all([inTransaction(pool, async db => {
+    const [{ turns, title, goalId, reviewInvitation, personal }, { onlineModelAvailable }] = await Promise.all([inTransaction(pool, async db => {
       await db.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
       const turns = await readTurns(db, userId, conversationId);
-      const title = await readConversationTitle(db, userId, conversationId);
+      const { title, goalId } = await readConversationHeading(db, userId, conversationId);
       const reviewInvitation = await readDueReviewInvitation(db, userId, now());
       const personal = await readPersonalMemories(db, userId);
-      return { turns, title, reviewInvitation, personal };
+      return { turns, title, goalId, reviewInvitation, personal };
     }), settings.view()]);
     const starter = !turns.length && onlineModelAvailable ? publishedDiscussions[0] : undefined;
-    return { conversationId, title, turns, ...personal, mode: onlineModelAvailable ? "model" : "guided", ...(reviewInvitation ? { reviewInvitation } : {}),
+    return { conversationId, title, goalId, turns, ...personal, mode: onlineModelAvailable ? "model" : "guided", ...(reviewInvitation ? { reviewInvitation } : {}),
       ...(starter ? { starter: { discussionVersion: starter.discussionVersion, title: starter.title, question: starter.question } } : {}) };
   }
 

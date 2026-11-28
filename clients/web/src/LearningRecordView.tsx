@@ -3,6 +3,7 @@ import type { LearningCommand, LearningRecord, LearningTopic, ReviewResult } fro
 import { HttpError, request } from './api'
 import { conversationHref } from './routes'
 import type { WorkspacePageProps } from './workspace-pages'
+import { useLearningGoals } from './learning-goals-client'
 
 const resultLabels: Record<ReviewResult, string> = { recalled: '独立答出', partial: '部分答出', forgotten: '没想起来' }
 const day = (iso: string) => new Date(iso).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -40,6 +41,9 @@ export function LearningRecordView({ userId, onUnauthorized, heading }: Workspac
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [failure, setFailure] = useState('')
+  // '' shows every topic, 'none' those outside any goal, otherwise one goal's topics.
+  const [goalFilter, setGoalFilter] = useState('')
+  const { goals } = useLearningGoals(userId, onUnauthorized)
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -77,6 +81,7 @@ export function LearningRecordView({ userId, onUnauthorized, heading }: Workspac
     }
   }
 
+  const shown = (record?.topics ?? []).filter(topic => !goalFilter || (goalFilter === 'none' ? !topic.goalId : topic.goalId === goalFilter))
   return <div className="settings-content learning-record">
     <header className="settings-heading">
       <h1 id={heading.id}>{heading.text}</h1>
@@ -95,8 +100,17 @@ export function LearningRecordView({ userId, onUnauthorized, heading }: Workspac
     </div>}
     {record && !record.topics.length && <p className="learning-empty">
       还没有复习记录。讨论课程或你附加的原文后，Agent 会在合适的时候邀请你复习。</p>}
-    {record && record.topics.length > 0 && <ul className="learning-topics">
-      {record.topics.map(topic => <TopicCard key={topic.originRequestId} topic={topic} busy={busy}
+    {record && record.topics.length > 0 && !!goals?.length && <div className="learning-filter">
+      <label htmlFor="learning-goal-filter">按学习目标查看</label>
+      <select id="learning-goal-filter" value={goalFilter} onChange={event => setGoalFilter(event.target.value)}>
+        <option value="">全部主题</option>
+        {goals.map(goal => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
+        <option value="none">未归入目标</option>
+      </select>
+    </div>}
+    {record && record.topics.length > 0 && !shown.length && <p className="learning-empty">这个目标下还没有复习主题。把相关对话归到这个目标后，它的复习会出现在这里。</p>}
+    {record && shown.length > 0 && <ul className="learning-topics">
+      {shown.map(topic => <TopicCard key={topic.originRequestId} topic={topic} busy={busy}
         onStop={() => void run({ operation: 'stop_topic', originRequestId: topic.originRequestId }, `已停止复习「${topic.topic}」。`)} />)}
     </ul>}
   </div>
